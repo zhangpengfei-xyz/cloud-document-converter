@@ -44,10 +44,10 @@
       "prettier --check --ignore-path .gitignore --ignore-path .prettierignore"
     ]
   },
-  "packageManager": "pnpm@10.15.0",
+  "packageManager": "pnpm@11.5.3",
   "volta": {
     "node": "22.18.0",
-    "pnpm": "10.15.0"
+    "pnpm": "11.5.3"
   },
   "dependencies": {
     "core-js": "catalog:prod"
