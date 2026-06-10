@@ -24,13 +24,9 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SettingKey, Table, Grid, Theme } from '@/common/settings'
-import { useI18n } from 'vue-i18n'
 import { useSettings } from '../shared/settings'
 
-const { locale, availableLocales, t } = useI18n()
-
 const schema = z.object({
-  [SettingKey.Locale]: z.enum(availableLocales.value),
   [SettingKey.Theme]: z.enum(Theme),
   [SettingKey.Table]: z.enum(Table),
   [SettingKey.Grid]: z.enum(Grid),
@@ -48,7 +44,6 @@ watch(query.data, newValues => {
   if (newValues) {
     resetForm({
       values: pick(newValues, [
-        SettingKey.Locale,
         SettingKey.Theme,
         SettingKey.Table,
         SettingKey.Grid,
@@ -56,7 +51,6 @@ watch(query.data, newValues => {
       ]),
     })
 
-    localStorage.setItem('cache.locale', newValues[SettingKey.Locale])
     localStorage.setItem('cache.theme', newValues[SettingKey.Theme])
   }
 })
@@ -69,52 +63,14 @@ const onSubmit = handleSubmit.withControlled(async values => {
 <template>
   <Card>
     <CardHeader>
-      <CardTitle class="flex items-center gap-2">
-        {{ t('general') }}
-      </CardTitle>
+      <CardTitle class="flex items-center gap-2"> General </CardTitle>
     </CardHeader>
     <CardContent class="space-y-6">
       <form id="form-vee-general" class="w-2/3 space-y-6" @submit="onSubmit">
-        <VeeField v-slot="{ field, errors }" :name="`[${SettingKey.Locale}]`">
-          <Field orientation="responsive" :data-invalid="!!errors.length">
-            <FieldContent>
-              <FieldLabel for="form-vee-general-locale">{{
-                t('general.language')
-              }}</FieldLabel>
-              <FieldError v-if="errors.length" :errors="errors" />
-            </FieldContent>
-            <Skeleton v-if="query.isPending.value" class="h-9 w-40" />
-            <Select
-              v-else
-              :name="field.name"
-              :model-value="field.value"
-              @update:model-value="field.onChange"
-            >
-              <SelectTrigger
-                id="form-vee-general-locale"
-                :aria-invalid="!!errors.length"
-              >
-                <SelectValue :placeholder="t('general.language.placeholder')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem
-                    v-for="value of availableLocales"
-                    :key="`${locale}_${value}`"
-                    :value="value"
-                    >{{ t(`language.${value}`) }}</SelectItem
-                  >
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-        </VeeField>
         <VeeField v-slot="{ field, errors }" :name="`[${SettingKey.Theme}]`">
           <Field orientation="responsive" :data-invalid="!!errors.length">
             <FieldContent>
-              <FieldLabel for="form-vee-general-theme">{{
-                t('general.theme')
-              }}</FieldLabel>
+              <FieldLabel for="form-vee-general-theme">Theme</FieldLabel>
               <FieldError v-if="errors.length" :errors="errors" />
             </FieldContent>
             <Skeleton v-if="query.isPending.value" class="h-9 w-40" />
@@ -127,24 +83,18 @@ const onSubmit = handleSubmit.withControlled(async values => {
                 id="form-vee-general-theme"
                 :aria-invalid="!!errors.length"
               >
-                <SelectValue :placeholder="t('general.theme.placeholder')" />
+                <SelectValue placeholder="Select theme" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem
-                    :key="`${locale}_${Theme.Light}`"
-                    :value="Theme.Light"
-                    >{{ t('general.theme.light') }}
+                  <SelectItem :key="Theme.Light" :value="Theme.Light"
+                    >Light
                   </SelectItem>
-                  <SelectItem
-                    :key="`${locale}_${Theme.Dark}`"
-                    :value="Theme.Dark"
-                    >{{ t('general.theme.dark') }}
+                  <SelectItem :key="Theme.Dark" :value="Theme.Dark"
+                    >Dark
                   </SelectItem>
-                  <SelectItem
-                    :key="`${locale}_${Theme.System}`"
-                    :value="Theme.System"
-                    >{{ t('general.theme.system') }}
+                  <SelectItem :key="Theme.System" :value="Theme.System"
+                    >System
                   </SelectItem>
                 </SelectGroup>
               </SelectContent>
@@ -155,9 +105,9 @@ const onSubmit = handleSubmit.withControlled(async values => {
         <VeeField v-slot="{ field, errors }" :name="`[${SettingKey.Table}]`">
           <Field orientation="responsive" :data-invalid="!!errors.length">
             <FieldContent>
-              <FieldLabel for="form-vee-general-table">{{
-                t('general.table')
-              }}</FieldLabel>
+              <FieldLabel for="form-vee-general-table"
+                >Handling of tables</FieldLabel
+              >
               <FieldError v-if="errors.length" :errors="errors" />
             </FieldContent>
             <Skeleton v-if="query.isPending.value" class="h-9 w-40" />
@@ -170,24 +120,20 @@ const onSubmit = handleSubmit.withControlled(async values => {
                 id="form-vee-general-table"
                 :aria-invalid="!!errors.length"
               >
-                <SelectValue :placeholder="t('general.table.placeholder')" />
+                <SelectValue placeholder="Select handling" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem
-                    :key="`${locale}_${Table.Filtered}`"
-                    :value="Table.Filtered"
-                    >{{ t('general.table.filtered') }}
+                  <SelectItem :key="Table.Filtered" :value="Table.Filtered"
+                    >Filter non-phrasing content
                   </SelectItem>
                   <SelectItem
-                    :key="`${locale}_${Table.NonPhrasingContentToHTML}`"
+                    :key="Table.NonPhrasingContentToHTML"
                     :value="Table.NonPhrasingContentToHTML"
-                    >{{ t('general.table.non_phrasing_content_to_html') }}
+                    >Convert table with non-phrasing content to HTML
                   </SelectItem>
-                  <SelectItem
-                    :key="`${locale}_${Table.ToHTML}`"
-                    :value="Table.ToHTML"
-                    >{{ t('general.table.to_html') }}
+                  <SelectItem :key="Table.ToHTML" :value="Table.ToHTML"
+                    >Convert all tables to HTML
                   </SelectItem>
                 </SelectGroup>
               </SelectContent>
@@ -197,9 +143,9 @@ const onSubmit = handleSubmit.withControlled(async values => {
         <VeeField v-slot="{ field, errors }" :name="`[${SettingKey.Grid}]`">
           <Field orientation="responsive" :data-invalid="!!errors.length">
             <FieldContent>
-              <FieldLabel for="form-vee-general-grid">{{
-                t('general.grid')
-              }}</FieldLabel>
+              <FieldLabel for="form-vee-general-grid"
+                >Handling of grids</FieldLabel
+              >
               <FieldError v-if="errors.length" :errors="errors" />
             </FieldContent>
             <Skeleton v-if="query.isPending.value" class="h-9 w-40" />
@@ -212,24 +158,18 @@ const onSubmit = handleSubmit.withControlled(async values => {
                 id="form-vee-general-grid"
                 :aria-invalid="!!errors.length"
               >
-                <SelectValue :placeholder="t('general.grid.placeholder')" />
+                <SelectValue placeholder="Select handling" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem
-                    :key="`${locale}_${Grid.Flatten}`"
-                    :value="Grid.Flatten"
-                    >{{ t('general.grid.flatten') }}
+                  <SelectItem :key="Grid.Flatten" :value="Grid.Flatten"
+                    >Flatten
                   </SelectItem>
-                  <SelectItem
-                    :key="`${locale}_${Grid.ToTable}`"
-                    :value="Grid.ToTable"
-                    >{{ t('general.grid.to_table') }}
+                  <SelectItem :key="Grid.ToTable" :value="Grid.ToTable"
+                    >To Table
                   </SelectItem>
-                  <SelectItem
-                    :key="`${locale}_${Grid.ToHTML}`"
-                    :value="Grid.ToHTML"
-                    >{{ t('general.grid.to_html') }}
+                  <SelectItem :key="Grid.ToHTML" :value="Grid.ToHTML"
+                    >To HTML
                   </SelectItem>
                 </SelectGroup>
               </SelectContent>
@@ -242,9 +182,10 @@ const onSubmit = handleSubmit.withControlled(async values => {
         >
           <Field orientation="horizontal" :data-invalid="!!errors.length">
             <FieldContent>
-              <FieldLabel for="form-vee-general-text-highlight">{{
-                t('general.text_highlight')
-              }}</FieldLabel>
+              <FieldLabel for="form-vee-general-text-highlight"
+                >Preserve text highlighting (font color, font background
+                color)</FieldLabel
+              >
               <FieldError v-if="errors.length" :errors="errors" />
             </FieldContent>
             <Skeleton v-if="query.isPending.value" class="h-9 w-40" />
@@ -272,7 +213,7 @@ const onSubmit = handleSubmit.withControlled(async values => {
               class="bg-primary absolute -right-1 -top-1 inline-flex size-3 rounded-full"
             ></span>
           </template>
-          {{ t('save') }}
+          Save
         </Button>
       </form>
     </CardContent>

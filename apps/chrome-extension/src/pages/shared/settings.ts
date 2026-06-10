@@ -10,16 +10,10 @@ import { defaultsDeep } from 'es-toolkit/compat'
 import { fallbackSettings, SettingKey, type Settings } from '@/common/settings'
 import { storage } from '@/lib/storage'
 
-export const defaultSettings: Settings = {
-  ...fallbackSettings,
-  [SettingKey.Locale]: import.meta.env.DEV
-    ? 'zh-CN'
-    : chrome.i18n.getUILanguage(),
-}
+export const defaultSettings: Settings = fallbackSettings
 
 export const useSettings = <
   Key extends keyof Settings =
-    | SettingKey.Locale
     | SettingKey.Theme
     | SettingKey.Table
     | SettingKey.Grid
@@ -37,7 +31,6 @@ export const useSettings = <
 } => {
   const {
     keys = [
-      SettingKey.Locale,
       SettingKey.Theme,
       SettingKey.Table,
       SettingKey.Grid,

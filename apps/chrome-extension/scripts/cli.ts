@@ -83,10 +83,6 @@ const copyResources = async () => {
 
   const copyEntries: CopyEntry[] = [
     {
-      from: path.join(dirname, '../_locales'),
-      to: path.join(dirname, '../dist/_locales'),
-    },
-    {
       from: path.join(dirname, '../images'),
       to: path.join(dirname, '../dist/images'),
     },

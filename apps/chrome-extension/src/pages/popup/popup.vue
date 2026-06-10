@@ -7,10 +7,8 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Flag } from '@/common/message'
-import { useInitLocale } from '../shared/i18n'
 import { useInitTheme } from '../shared/theme'
 
-const { t } = useInitLocale()
 useInitTheme()
 
 const handleMessage = async (flag: Flag) => {
@@ -37,7 +35,7 @@ const handleOpenOptionsPage = () => {
     <DropdownMenuContent class="border-0 rounded-none">
       <DropdownMenuItem @select="() => handleMessage(Flag.ExecuteViewScript)">
         <Eye />
-        {{ t('lark.docx.view') }}
+        View as Markdown
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem
@@ -48,7 +46,7 @@ const handleOpenOptionsPage = () => {
       >
         <a>
           <Info />
-          {{ t('help.and.feedback') }}
+          Help and Feedback
         </a>
       </DropdownMenuItem>
       <DropdownMenuItem
@@ -56,7 +54,7 @@ const handleOpenOptionsPage = () => {
         @select="handleOpenOptionsPage"
       >
         <Settings />
-        {{ t('settings') }}
+        Settings
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>

@@ -3,7 +3,6 @@ import { defaultsDeep } from 'es-toolkit/compat'
 import { EventName, portImpl } from './message'
 
 export enum SettingKey {
-  Locale = 'general.locale',
   Theme = 'general.theme',
   Table = 'general.table',
   Grid = 'general.grid',
@@ -29,7 +28,6 @@ export enum Grid {
 }
 
 export interface Settings {
-  [SettingKey.Locale]: string
   [SettingKey.Theme]: (typeof Theme)[keyof typeof Theme]
   [SettingKey.Table]: (typeof Table)[keyof typeof Table]
   [SettingKey.Grid]: (typeof Grid)[keyof typeof Grid]
@@ -37,7 +35,6 @@ export interface Settings {
 }
 
 export const fallbackSettings: Settings = {
-  [SettingKey.Locale]: 'en-US',
   [SettingKey.Theme]: Theme.System,
   [SettingKey.Table]: Table.NonPhrasingContentToHTML,
   [SettingKey.Grid]: Grid.Flatten,

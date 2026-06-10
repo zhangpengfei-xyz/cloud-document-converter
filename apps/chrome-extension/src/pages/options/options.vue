@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SIDEBAR_WIDTH } from '@/components/ui/sidebar/utils'
 import { cn } from '@/lib/utils'
-import { useInitLocale } from '../shared/i18n'
 import { useInitTheme } from '../shared/theme'
 
 const route = useRoute()
@@ -26,7 +25,6 @@ const menuItemLinkVariants = cva(
   'flex justify-start items-center gap-2 w-full py-2 px-4 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ring-sidebar-ring focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground [&.router-link-exact-active]:bg-sidebar-accent [&.router-link-exact-active]:font-medium [&.router-link-exact-active]:text-sidebar-accent-foreground',
 )
 
-const { t } = useInitLocale()
 useInitTheme()
 </script>
 
@@ -43,13 +41,13 @@ useInitTheme()
       >
         <div class="w-full flex justify-start items-center gap-2 p-4">
           <img class="w-8" src="/logo.svg" />
-          <h3 class="text-xl font-medium">{{ t('settings') }}</h3>
+          <h3 class="text-xl font-medium">Settings</h3>
         </div>
         <ul class="w-full flex flex-col justify-start items-start gap-2">
           <li class="w-full">
             <RouterLink :class="cn(menuItemLinkVariants())" to="/general">
               <SettingsIcon />
-              {{ t('general') }}
+              General
             </RouterLink>
           </li>
         </ul>
@@ -61,9 +59,7 @@ useInitTheme()
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink as-child>
-                <RouterLink to="/">
-                  {{ t('home') }}
-                </RouterLink>
+                <RouterLink to="/"> Home </RouterLink>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -71,14 +67,14 @@ useInitTheme()
               <DropdownMenu>
                 <DropdownMenuTrigger>
                   <span class="cursor-pointer hover:text-accent-foreground">
-                    {{ typeof route.name === 'string' ? t(route.name) : '' }}
+                    {{ typeof route.name === 'string' ? 'General' : '' }}
                   </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <RouterLink to="/general">
                     <DropdownMenuCheckboxItem
                       :model-value="route.name === 'general'"
-                      >{{ t('general') }}
+                      >General
                     </DropdownMenuCheckboxItem>
                   </RouterLink>
                 </DropdownMenuContent>

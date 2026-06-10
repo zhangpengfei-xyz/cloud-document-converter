@@ -6,7 +6,7 @@ import { gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
 import { gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
 import { gfmTableToMarkdown } from 'mdast-util-gfm-table'
 import { mathToMarkdown, type InlineMath } from 'mdast-util-math'
-import { PageMain, User, isDoc, isDocx } from './env'
+import { PageMain, isDoc, isDocx } from './env'
 import {
   isBlockquoteContent,
   isParent,
@@ -20,11 +20,6 @@ import { escape } from 'es-toolkit/compat'
 import { toCamelCaseKeys } from 'es-toolkit/object'
 
 declare module 'mdast' {
-  interface ImageData {
-    name?: string
-    token?: string
-  }
-
   interface ListItemData {
     seq?: number | 'auto'
   }
@@ -904,14 +899,12 @@ export interface TableWithParent {
 
 interface TransformResult<T> {
   root: T
-  images: mdast.Image[]
   tableWithParents: TableWithParent[]
   mentionUsers: mdast.InlineCode[]
 }
 
 export class Transformer {
   private parent: mdast.Parent | null = null
-  private images: mdast.Image[] = []
   private mentionUsers: mdast.InlineCode[] = []
   private tableWithParents: TableWithParent[] = []
   /**
@@ -1132,23 +1125,12 @@ export class Transformer {
         return paragraph
       }
       case BlockType.IMAGE: {
-        const imageBlockToImage = (block: ImageBlock) => {
-          const { caption, name, token } = block.snapshot.image
-          const image: mdast.Image = {
-            type: 'image',
-            url: '',
-            alt: evaluateAlt(caption),
-            data: {
-              name,
-              token,
-            },
-          }
-          return image
+        const { caption, token } = block.snapshot.image
+        const image: mdast.Image = {
+          type: 'image',
+          url: token,
+          alt: evaluateAlt(caption),
         }
-
-        const image: mdast.Image = imageBlockToImage(block)
-
-        this.images.push(image)
 
         return this.normalizeImage(image)
       }
@@ -1311,14 +1293,12 @@ export class Transformer {
 
     const result: TransformResult<Mutate<T>> = {
       root: node,
-      images: this.images,
       tableWithParents: this.tableWithParents,
       mentionUsers: this.mentionUsers,
     }
 
     this.parent = null
 
-    this.images = []
     this.tableWithParents = []
     this.mentionUsers = []
 
@@ -1372,10 +1352,6 @@ export class Docx {
     }
 
     return PageMain.blockManager.rootBlockModel
-  }
-
-  get language(): 'zh' | 'en' {
-    return User?.language === 'zh' ? 'zh' : 'en'
   }
 
   get pageTitle(): string | undefined {
@@ -1447,7 +1423,6 @@ export class Docx {
     if (!this.rootBlock) {
       return {
         root: { type: 'root', children: [] },
-        images: [],
         tableWithParents: [],
         mentionUsers: [],
       }

@@ -41,7 +41,7 @@ flowchart LR
   FloatingButtons --> Background
 
   Background --> InjectedScripts["MAIN world 注入脚本<br/>view"]
-  InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/User/Toast/globalConfig"]
+  InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/Toast/globalConfig"]
   InjectedScripts --> LarkPackage["@dolphin/lark<br/>Docx -> mdast -> Markdown"]
   InjectedScripts --> Output["预览窗口"]
 
@@ -64,7 +64,7 @@ flowchart LR
 | --- | --- | --- |
 | 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 统一脚本、依赖目录、Turborepo 任务缓存 |
 | Chrome Extension | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
-| Lark 转换库 | `packages/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片公开 URL 解析 |
+| Lark 转换库 | `packages/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片 token URL 映射 |
 | Common 工具库 | `packages/common` | 跨包通用工具、window message Port、时间常量、图片/SVG/DOM 工具 |
 | TS 配置 | `packages/typescript-config` | workspace 共享 TypeScript 配置 |
 | 版本变更 | `.changeset` | 多包发布变更记录 |
@@ -179,7 +179,6 @@ sequenceDiagram
 `packages/lark/src/env.ts` 从当前页面读取飞书运行时对象：
 
 - `window.PageMain`：Docx block tree、定位 block 的能力。
-- `window.User`：当前用户语言。
 - `window.Toast`：复用飞书页面 Toast UI。
 - `window.editor`：用于判断旧版 Doc 页面。
 
@@ -188,7 +187,6 @@ sequenceDiagram
 - `isDocx`：当前页面是否是新版 Docx。
 - `isDoc`：是否是旧版 Doc。
 - `rootBlock`：读取 `PageMain.blockManager.rootBlockModel`。
-- `language`：读取用户语言并归一到 `zh` 或 `en`。
 - `pageTitle`：从 root block 文本推导文件名。
 - `isReady`：判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
 - `scrollTo`：滚动飞书文档容器，用于触发懒加载。
@@ -200,7 +198,6 @@ sequenceDiagram
 `Transformer` 负责把飞书 block 转换成 mdast 节点。它维护以下转换过程状态：
 
 - `parent`：当前 mdast 父节点，用于决定图片是否包裹 paragraph、表格替换位置等。
-- `images`：转换过程中发现的图片资源。
 - `mentionUsers`：待二次解析的用户 mention。
 - `tableWithParents`：待按设置后处理的 table/grid 节点及其父节点。
 - `sequences`：标题自动编号状态。
@@ -216,7 +213,7 @@ sequenceDiagram
 | `BULLET`, `ORDERED`, `TODO` | `listItem`，随后合并为 `list` |
 | `QUOTE_CONTAINER`, `CALLOUT` | `blockquote` |
 | `DIVIDER` | thematic break |
-| `IMAGE` | `image`，记录 token |
+| `IMAGE` | `image`，URL 使用图片 token |
 | `WHITEBOARD`, `DIAGRAM`, `FILE` | 跳过 |
 | `TABLE` | `table`，记录列宽、合并单元格和异常子节点 |
 | `GRID` | `table` 或扁平化子块，取决于设置 |
@@ -262,21 +259,20 @@ sequenceDiagram
 2. 从设置桥读取表格、Grid、文本高亮设置。
 3. 调用 `docx.intoMarkdownAST` 生成 mdast。
 4. 解析 mention 用户。
-5. 将图片 token 转为飞书公开 URL，并调用 `copy_out` 让链接生效。
-6. 按设置处理 table/grid。
-7. `Docx.stringify(root)` 输出 Markdown。
-8. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
-9. 用 Toast 提示失败或可上报错误。
+5. 按设置处理 table/grid。
+6. `Docx.stringify(root)` 输出 Markdown。
+7. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
+8. 用 Toast 提示失败或可上报错误。
 
 ## 9. 资源访问设计
 
 ### 9.1 图片
 
-预览流程使用 `@dolphin/lark/image` 根据 token 生成公开 URL，并调用 `/api/docx/resources/copy_out` 使 URL 生效。
+图片 block 在转换为 mdast `image` 时直接把飞书图片 token 写入 `url`，不再生成外链，也不再进行额外资源生效请求。
 
 白板、图表和附件不再在预览流程中转换为本地资源或访问链接。
 
-## 10. 设置、国际化与主题
+## 10. 设置与主题
 
 ### 10.1 设置模型
 
@@ -284,19 +280,12 @@ sequenceDiagram
 
 | Key | 含义 | 默认值 |
 | --- | --- | --- |
-| `general.locale` | UI 语言 | `en-US` 或浏览器 UI 语言 |
 | `general.theme` | 主题 | `system` |
 | `general.table` | 表格输出策略 | `nonPhrasingContentToHTML` |
 | `general.grid` | Grid 输出策略 | `flatten` |
 | `general.text_highlight` | 是否保留文本高亮 | `true` |
 
-### 10.2 国际化
-
-- 扩展 manifest、右键菜单等使用 Chrome `_locales`。
-- Popup/Options 使用 Vue i18n 初始化。
-- 注入脚本使用 i18next，并根据 `docx.language` 切换中英文提示。
-
-### 10.3 主题
+### 10.2 主题
 
 Options 和 Popup 通过共享 `theme.ts` 初始化主题。主题设置保存到 storage，并在页面侧缓存到 `localStorage` 用于快速应用。
 
@@ -308,7 +297,7 @@ Options 和 Popup 通过共享 `theme.ts` 初始化主题。主题设置保存�
 
 1. `buildScripts`：使用 tsdown 构建 background、content 和功能脚本。
 2. `buildPages`：使用 rolldown-vite 构建 Popup 和 Options Vue 页面。
-3. `copyResources`：复制 `_locales`、`images`、`manifest.json`。
+3. `copyResources`：复制 `images`、`manifest.json`。
 4. `genManifest`：写入 package version，并在 Firefox target 下把 MV3 service worker background 转为 Firefox 需要的 scripts 形式。
 
 `apps/chrome-extension/tsdown.config.ts` 的关键策略：
@@ -335,7 +324,6 @@ Turborepo 根任务：
 
 - 所有转换在浏览器本地执行，不引入项目自有后端。
 - host permissions 限定在飞书/Lark 相关域名，减少扩展可访问范围。
-- 预览图片公开 URL 时调用飞书 `copy_out` API，属于当前用户上下文内的页面能力。
 - 文档调试输出应避免包含私有文档内容、token、cookie。
 
 ## 13. 主要架构风险
@@ -345,11 +333,11 @@ Turborepo 根任务：
 | 依赖飞书页面私有运行时对象 | 飞书前端结构变更可能导致转换失效 | 为 `PageMain`、block schema、DOM selector 增加更明确的兼容层 |
 | Content script 和 MAIN world 之间需要桥接 | 消息协议错误会影响设置读取 | 保持 `Port` 协议最小化，集中维护异步响应 ID 匹配逻辑 |
 | 复杂表格与 Grid 无法完全用 GFM 表达 | Markdown 输出可能丢结构 | 继续使用 HTML 降级，并在设置中暴露策略 |
-| 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 当前通过确认弹窗恢复用户意图，后续可统一抽象用户激活处理 |
+| 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 保持预览动作直接由用户触发，并在失败时给出 Toast 提示 |
 
 ## 14. 演进建议
 
 1. 抽象页面运行时适配层：把 `window.PageMain`、`window.globalConfig`、DOM selector 集中到独立 adapter，降低飞书改版影响面。
 2. 收敛预览脚本中的页面校验、设置读取、AST 转换、mention/table 后处理，让流程更容易复用。
-3. 强化资源失败可观测性：公开 URL 生效失败时记录失败资源列表，最终 Toast 或报告中展示失败原因。
+3. 完善图片 token URL 在不同飞书/Lark 域名下的可访问性验证。
 4. 完善浏览器兼容矩阵：持续验证 Chromium 与 Firefox target 的 manifest、background 和窗口打开行为差异。

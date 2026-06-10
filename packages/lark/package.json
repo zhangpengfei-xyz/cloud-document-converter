@@ -17,11 +17,6 @@
       "dev": "./src/env.ts",
       "types": "./dist/env.d.mts",
       "default": "./dist/env.mjs"
-    },
-    "./image": {
-      "dev": "./src/image.ts",
-      "types": "./dist/image.d.mts",
-      "default": "./dist/image.mjs"
     }
   },
   "scripts": {
@@ -34,7 +29,6 @@
   },
   "dependencies": {
     "@dolphin/common": "workspace:*",
-    "js-base64": "catalog:prod",
     "mdast-util-gfm-strikethrough": "catalog:prod",
     "mdast-util-gfm-table": "catalog:prod",
     "mdast-util-gfm-task-list-item": "catalog:prod",

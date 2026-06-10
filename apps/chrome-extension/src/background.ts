@@ -16,7 +16,7 @@ enum MenuItemId {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: MenuItemId.VIEW_DOCX_AS_MARKDOWN,
-    title: chrome.i18n.getMessage('view_docx_as_markdown'),
+    title: 'View as Markdown',
     documentUrlPatterns: sharedDocumentUrlPatterns,
     contexts: ['page', 'editable'],
   })

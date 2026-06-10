@@ -32,12 +32,6 @@ const defaultToast: Toast = {
 
 export const Toast: Toast = window.Toast ?? defaultToast
 
-export interface User {
-  language: string
-}
-
-export const User: User | undefined = window.User
-
 export interface PageMain {
   blockManager: {
     /**

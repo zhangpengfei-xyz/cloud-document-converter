@@ -44,6 +44,5 @@
   "background": {
     "service_worker": "bundles/background.js",
     "type": "module"
-  },
-  "default_locale": "en"
+  }
 }
