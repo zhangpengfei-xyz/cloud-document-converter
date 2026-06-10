@@ -1,9 +1,12 @@
-interface AsyncMessage extends PromiseWithResolvers<unknown> {
+interface AsyncMessage {
   id: number
+  promise: Promise<unknown>
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
   timer?: ReturnType<typeof setTimeout>
 }
 
-export enum MessageType {
+enum MessageType {
   Request,
   Response,
 }
@@ -29,6 +32,25 @@ interface PortOptions {
 let id = 0
 
 const uuid = (): number => (id += 1)
+
+const withResolvers = (): Pick<
+  AsyncMessage,
+  'promise' | 'resolve' | 'reject'
+> => {
+  let resolve: AsyncMessage['resolve'] = () => undefined
+  let reject: AsyncMessage['reject'] = () => undefined
+
+  const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return {
+    promise,
+    resolve,
+    reject,
+  }
+}
 
 const isMessage = (message: unknown): message is Message => {
   if (typeof message !== 'object' || message === null) {
@@ -90,11 +112,11 @@ export class Port<
           const pending: AsyncMessage[] = []
           const resolved: AsyncMessage[] = []
 
-          this.queue.forEach(message => {
-            if (message.id === message.id) {
-              resolved.push(message)
+          this.queue.forEach(asyncMessage => {
+            if (asyncMessage.id === message.id) {
+              resolved.push(asyncMessage)
             } else {
-              pending.push(message)
+              pending.push(asyncMessage)
             }
           })
 
@@ -128,7 +150,7 @@ export class Port<
     name: T,
     data: Events[T],
   ): Promise<U> {
-    const { promise, resolve, reject } = Promise.withResolvers()
+    const { promise, resolve, reject } = withResolvers()
 
     const asyncMessage: AsyncMessage = {
       id: uuid(),
@@ -155,7 +177,7 @@ export class Port<
       id: asyncMessage.id,
       async: true,
       name,
-      data: data,
+      data,
     }
 
     window.postMessage(message)
@@ -175,24 +197,6 @@ export class Port<
       this.eventNameToHandlers.set(name, [
         handler as (data: unknown) => unknown,
       ])
-    }
-  }
-
-  off<T extends keyof Events & string>(
-    name: T,
-    handler?: (data: Events[T]) => unknown,
-  ): void {
-    const handlers = this.eventNameToHandlers.get(name)
-
-    if (handlers) {
-      if (handler) {
-        handlers.splice(
-          handlers.indexOf(handler as (data: unknown) => unknown) >>> 0,
-          1,
-        )
-      } else {
-        this.eventNameToHandlers.set(name, [])
-      }
     }
   }
 }

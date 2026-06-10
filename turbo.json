@@ -3,12 +3,9 @@
   "tasks": {
     "build": {
       "outputs": ["dist/**"],
-      "dependsOn": ["^build"],
-      "inputs": ["apps/chrome-extension/src/**/*", "packages/**/src/**/*"],
+      "inputs": ["apps/chrome-extension/src/**/*"],
       "cache": true
     },
-    "type-check": {
-      "dependsOn": ["^build"]
-    }
+    "type-check": {}
   }
 }

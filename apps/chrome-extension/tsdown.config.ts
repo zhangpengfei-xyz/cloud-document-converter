@@ -5,7 +5,6 @@ import regexpEscape from 'regexp.escape'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import packageJson from './package.json' with { type: 'json' }
-import '@dolphin/common/env'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -22,9 +21,6 @@ export default defineConfig(async cliOptions => {
         alias: {
           '@': path.resolve(__dirname, './src'),
         },
-        ...(isDev && {
-          conditionNames: ['dev'],
-        }),
       },
     },
     platform: 'browser',

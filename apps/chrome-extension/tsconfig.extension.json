@@ -1,8 +1,7 @@
 {
-  "extends": "@dolphin/typescript-config/app.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.extension.tsbuildinfo",
-    "types": ["@dolphin/common/env"],
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
@@ -12,7 +11,11 @@
   "include": [
     "src/background.ts",
     "src/content.ts",
+    "src/env.d.ts",
     "src/chrome-types.d.ts",
-    "src/popup"
+    "src/common/*.ts",
+    "src/lark/**/*.ts",
+    "src/lark/**/*.d.ts",
+    "src/shared/**/*.ts"
   ]
 }

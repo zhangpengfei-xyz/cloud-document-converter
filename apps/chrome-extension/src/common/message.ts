@@ -1,4 +1,4 @@
-import { Port } from '@dolphin/common/message'
+import { Port } from '../shared/message'
 
 export enum Flag {
   ExecuteViewScript = 'view_docx_as_markdown',

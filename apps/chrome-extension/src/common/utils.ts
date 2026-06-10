@@ -6,8 +6,8 @@ import {
   type mdast,
   type hast,
   BlockType,
-} from '@dolphin/lark'
-import { Second, waitForFunction } from '@dolphin/common'
+} from '../lark'
+import { Second, waitForFunction } from '../shared'
 import {
   SettingKey,
   Table as TableSetting,

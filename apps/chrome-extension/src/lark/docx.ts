@@ -1,6 +1,6 @@
 import type * as mdast from 'mdast'
 import { chunk } from 'es-toolkit/array'
-import { compare, isDefined, OneHundred } from '@dolphin/common'
+import { compare, isDefined, OneHundred } from '../shared'
 import { toMarkdown, type Options } from 'mdast-util-to-markdown'
 import { gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
 import { gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
@@ -391,6 +391,7 @@ interface NotSupportedBlock extends Block {
     | BlockType.QUOTE
     | BlockType.BITABLE
     | BlockType.CHAT_CARD
+    | BlockType.FILE
     | BlockType.MINDNOTE
     | BlockType.SHEET
     | BlockType.FALLBACK
@@ -481,7 +482,7 @@ const chunkBy = <T>(
   return chunks
 }
 
-export const mergeListItems = <T extends mdast.Nodes>(
+const mergeListItems = <T extends mdast.Nodes>(
   nodes: T[],
 ): (mdast.List | T)[] =>
   chunkBy(nodes, (current, next) => {
@@ -554,7 +555,7 @@ export const mergeListItems = <T extends mdast.Nodes>(
     return node
   })
 
-export const mergePhrasingContents = (
+const mergePhrasingContents = (
   nodes: mdast.PhrasingContent[],
 ): mdast.PhrasingContent[] =>
   chunkBy(nodes, (current, next) => {
@@ -609,13 +610,13 @@ export const mergePhrasingContents = (
         : [current]
     })
 
-export interface transformOperationsToPhrasingContentsOptions {
+interface TransformOperationsToPhrasingContentsOptions {
   highlight?: boolean
 }
 
-export const transformOperationsToPhrasingContents = (
+const transformOperationsToPhrasingContents = (
   ops: Operation[],
-  options: transformOperationsToPhrasingContentsOptions = {},
+  options: TransformOperationsToPhrasingContentsOptions = {},
 ): { contents: mdast.PhrasingContent[]; mentionUsers: mdast.InlineCode[] } => {
   const mentionUsers: mdast.InlineCode[] = []
 
@@ -903,7 +904,7 @@ interface TransformResult<T> {
   mentionUsers: mdast.InlineCode[]
 }
 
-export class Transformer {
+class Transformer {
   private parent: mdast.Parent | null = null
   private mentionUsers: mdast.InlineCode[] = []
   private tableWithParents: TableWithParent[] = []

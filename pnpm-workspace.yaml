@@ -1,6 +1,12 @@
 packages:
   - apps/*
-  - packages/*
+
+allowBuilds:
+  '@tailwindcss/oxide': true
+  core-js: false
+  esbuild: true
+  spawn-sync: true
+  vue-demi: true
 
 catalogs:
   build:

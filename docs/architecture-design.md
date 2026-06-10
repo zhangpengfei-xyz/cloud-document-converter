@@ -1,10 +1,10 @@
 # Cloud Document Converter 架构设计文档
 
-最后更新：2026-06-10
+最后更新：2026-06-11
 
 ## 1. 背景
 
-Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云文档页面中把 Docx 文档转换为 Markdown，并在新窗口中预览 Markdown。项目采用 pnpm workspace + Turborepo 的 monorepo 结构，将浏览器扩展、核心转换引擎和公共工具分层维护。
+Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云文档页面中把 Docx 文档转换为 Markdown，并在新窗口中预览 Markdown。项目采用 pnpm workspace + Turborepo 的单应用结构，浏览器扩展、核心转换引擎和公共工具统一收敛在 `apps/chrome-extension` 一个 package 内。
 
 ## 2. 设计目标
 
@@ -17,7 +17,7 @@ Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云�
 
 ### 2.2 技术目标
 
-- 核心转换逻辑与扩展 UI 解耦，便于复用和独立发布。
+- 核心转换逻辑与扩展 UI 在源码层解耦，便于维护和局部演进。
 - 运行时依赖浏览器扩展权限，但转换逻辑尽量只依赖飞书页面暴露的运行时对象。
 - 支持 Manifest V3 的 Chrome 扩展运行模型，同时保留 Firefox 构建适配入口。
 - 使用 AST 作为中间表示，降低 Markdown 字符串拼接带来的格式风险。
@@ -42,7 +42,7 @@ flowchart LR
 
   Background --> InjectedScripts["MAIN world 注入脚本<br/>view"]
   InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/Toast/globalConfig"]
-  InjectedScripts --> LarkPackage["@dolphin/lark<br/>Docx -> mdast -> Markdown"]
+  InjectedScripts --> LarkModule["src/lark<br/>Docx -> mdast -> Markdown"]
   InjectedScripts --> Output["预览窗口"]
 
   Options["Options 页面"] --> Storage["chrome.storage.sync"]
@@ -55,27 +55,31 @@ flowchart LR
 1. 扩展入口层：`manifest.json` 声明权限、页面、content script 和 background service worker。
 2. 用户交互层：Popup、Options、右键菜单、飞书页面浮动按钮。
 3. 执行编排层：Background 根据用户动作向当前 Tab 注入具体功能脚本。
-4. 转换引擎层：`@dolphin/lark` 从飞书页面运行时读取 Docx block tree，转换为 mdast，再序列化为 Markdown。
-5. 公共基础设施层：`@dolphin/common` 提供消息桥、等待、时间常量、DOM、图片和 SVG 工具。
+4. 转换引擎层：`apps/chrome-extension/src/lark` 从飞书页面运行时读取 Docx block tree，转换为 mdast，再序列化为 Markdown。
+5. 公共基础设施层：`apps/chrome-extension/src/shared` 提供消息桥、等待、时间常量和 DOM 轮询工具。
 
-## 4. Monorepo 模块划分
+## 4. 单包模块划分
 
 | 模块 | 路径 | 职责 |
 | --- | --- | --- |
 | 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 统一脚本、依赖目录、Turborepo 任务缓存 |
-| Chrome Extension | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
-| Lark 转换库 | `packages/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片 token URL 映射 |
-| Common 工具库 | `packages/common` | 跨包通用工具、window message Port、时间常量、图片/SVG/DOM 工具 |
-| TS 配置 | `packages/typescript-config` | workspace 共享 TypeScript 配置 |
-| 版本变更 | `.changeset` | 多包发布变更记录 |
+| Chrome Extension package | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
+| Lark 转换模块 | `apps/chrome-extension/src/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片 token URL 映射 |
+| Shared 工具模块 | `apps/chrome-extension/src/shared` | 应用内部通用工具、window message Port、时间常量、DOM 轮询工具 |
+| 扩展业务公共模块 | `apps/chrome-extension/src/common` | 设置模型、错误上报、表格/Grid 后处理、扩展消息枚举 |
+| TS 配置 | `apps/chrome-extension/tsconfig*.json`, 根 `tsconfig.json` | 应用与根工具脚本的 TypeScript 配置 |
+| 版本变更 | `.changeset` | 扩展 package 发布变更记录 |
 
-依赖方向保持为应用依赖库：
+源码依赖方向保持为入口层依赖内部模块：
 
 ```mermaid
 flowchart TD
-  Extension["@dolphin/chrome-extension"] --> Lark["@dolphin/lark"]
-  Extension --> Common["@dolphin/common"]
-  Lark --> Common
+  Extension["扩展入口与页面"] --> Lark["src/lark"]
+  Extension --> AppCommon["src/common"]
+  Extension --> Shared["src/shared"]
+  Lark --> Shared
+  AppCommon --> Lark
+  AppCommon --> Shared
 ```
 
 ## 5. 浏览器扩展架构
@@ -163,7 +167,7 @@ sequenceDiagram
 
 ### 6.2 MAIN world 与 Content script 的设置桥
 
-`@dolphin/common/message` 提供一个基于 `window.postMessage` 的 `Port`：
+`apps/chrome-extension/src/shared/message.ts` 提供一个基于 `window.postMessage` 的 `Port`：
 
 - 请求和响应都有 `__dolphin__` 标记、`from`、`to`、`name`、`id`。
 - 注入脚本使用 `portImpl.sender.sendAsync(EventName.GetSettings, keys)`。
@@ -172,11 +176,11 @@ sequenceDiagram
 
 ## 7. Markdown 转换架构
 
-核心入口：`packages/lark/src/docx.ts`
+核心入口：`apps/chrome-extension/src/lark/docx.ts`
 
 ### 7.1 页面运行时适配
 
-`packages/lark/src/env.ts` 从当前页面读取飞书运行时对象：
+`apps/chrome-extension/src/lark/env.ts` 从当前页面读取飞书运行时对象：
 
 - `window.PageMain`：Docx block tree、定位 block 的能力。
 - `window.Toast`：复用飞书页面 Toast UI。
@@ -306,7 +310,7 @@ Options 和 Popup 通过共享 `theme.ts` 初始化主题。主题设置保存�
 - `content.ts` 和 `src/scripts/*.ts` 构建为 IIFE，输出到 `dist/bundles/`。
 - `platform: 'browser'`，`target: es2024`。
 - release 模式开启 minify 和 Babel runtime。
-- 开发模式加入 `dev` condition，优先使用 workspace 包的源码导出。
+- 本地 Lark 与 shared 模块通过源码相对路径参与同一次脚本构建，不再依赖旧多包架构的 `dev` condition。
 
 `apps/chrome-extension/vite.config.ts` 的关键策略：
 
@@ -317,8 +321,8 @@ Options 和 Popup 通过共享 `theme.ts` 初始化主题。主题设置保存�
 
 Turborepo 根任务：
 
-- `build` 依赖上游包 `^build`，输出缓存 `dist/**`。
-- `type-check` 依赖上游构建。
+- `build` 直接构建扩展 package，输出缓存 `dist/**`。
+- `type-check` 直接执行扩展 package 的类型检查。
 
 ## 12. 安全与隐私设计
 

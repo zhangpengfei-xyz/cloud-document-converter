@@ -1,4 +1,22 @@
 {
-  "extends": "@dolphin/typescript-config/node.json",
+  "compilerOptions": {
+    "strict": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true,
+    "exactOptionalPropertyTypes": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true
+  },
   "include": ["eslint.config.js"]
 }

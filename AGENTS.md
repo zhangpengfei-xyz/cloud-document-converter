@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-This repo is a pnpm + Turborepo monorepo for **Cloud Document Converter** (a browser extension that converts Lark cloud docs to Markdown).
+This repo is a pnpm + Turborepo single-app workspace for **Cloud Document Converter** (a browser extension that converts Lark cloud docs to Markdown).
 
-- `apps/chrome-extension/`: Vue-based extension (UI in `src/pages/`, shared UI in `src/components/`, scripts in `src/scripts/`).
-- `packages/lark/`: core Lark Doc/Docx → Markdown transformer.
-- `packages/common/`: shared utilities used across workspaces.
-- `packages/typescript-config/`: shared `tsconfig` presets.
-- `.changeset/`: versioning notes for multi-package releases.
+- `apps/chrome-extension/`: Vue-based extension package (UI in `src/pages/`, shared UI in `src/components/`, scripts in `src/scripts/`).
+- `apps/chrome-extension/src/lark/`: core Lark Doc/Docx → Markdown transformer.
+- `apps/chrome-extension/src/shared/`: internal runtime utilities used by the extension and transformer.
+- `apps/chrome-extension/tsconfig*.json`: package-local TypeScript configuration.
+- `.changeset/`: versioning notes for extension package releases.
 Build outputs generally land in `dist/`.
 
 ## Build, Test, and Development Commands
@@ -16,8 +16,8 @@ Build outputs generally land in `dist/`.
 Toolchain: Node `22.12.0` (see `.node-version`) and pnpm (see `package.json#packageManager`).
 
 - Install deps: `pnpm install`
-- Build all workspaces: `pnpm run build`
-- Type-check all: `pnpm run type-check`
+- Build the workspace: `pnpm run build`
+- Type-check the workspace: `pnpm run type-check`
 - Lint: `pnpm run lint`
 - Format check / fix: `pnpm run format-check` / `pnpm run format`
 
@@ -32,7 +32,7 @@ Extension development:
 - Indentation: 2 spaces.
 - Prettier: no semicolons, single quotes (see `.prettierrc`).
 - ESLint: `typescript-eslint` strict configs; keep `pnpm run lint` clean before opening a PR.
-- Naming: workspace packages use the `@dolphin/*` scope.
+- Naming: the extension package uses the `@dolphin/*` scope.
 
 ## Commit & Pull Request Guidelines
 

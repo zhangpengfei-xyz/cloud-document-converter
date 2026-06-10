@@ -1,5 +1,6 @@
 {
   "name": "@dolphin/monorepo",
+  "private": true,
   "description": "Convert lark cloud documents to markdown",
   "license": "MIT",
   "type": "module",
@@ -20,7 +21,6 @@
   "devDependencies": {
     "@changesets/changelog-github": "catalog:cli",
     "@changesets/cli": "catalog:cli",
-    "@dolphin/typescript-config": "workspace:^",
     "@eslint/js": "catalog:lint",
     "@types/node": "catalog:types",
     "@types/regexp.escape": "catalog:types",

@@ -1,4 +1,4 @@
-import { Docx, docx, Toast } from '@dolphin/lark'
+import { Docx, docx, Toast } from '../lark'
 import { reportBug } from '../common/issue'
 import {
   transformMentionUsers,

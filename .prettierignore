@@ -12,6 +12,3 @@ bundles
 dist-firefox
 web-ext-artifacts
 popup.html
-
-# apps/lark
-compiled

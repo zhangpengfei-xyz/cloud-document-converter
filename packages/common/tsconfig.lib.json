@@ -1,7 +1,0 @@
-{
-  "extends": "@dolphin/typescript-config/lib.json",
-  "compilerOptions": {
-    "declarationDir": "dist"
-  },
-  "include": ["src"]
-}
