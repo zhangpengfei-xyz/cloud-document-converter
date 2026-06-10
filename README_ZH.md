@@ -5,7 +5,7 @@
 	<h1 align="center"><b>Cloud Document Converter</b></h1>
 </p>
 
-Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书云文档为 Markdown。
+Cloud Document Converter 是一个浏览器扩展，支持将飞书云文档预览为 Markdown。
 
 [English](./README.md) · **简体中文**
 
@@ -15,9 +15,7 @@ Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书
 
 # 功能
 
-- 下载飞书云文档为 Markdown
-
-- 复制飞书云文档为 Markdown
+- 预览飞书云文档为 Markdown
 
   > ❗注意: 通过这种方式生成的图像 URL 只有两个小时的访问时间。这意味着两小时后，将无法再访问图像资源。
 
@@ -40,11 +38,11 @@ Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书
 | 公示                  | ✅            | Math Block                        |
 | 高亮块                | ❌            | Blockquote                        |
 | 引用块                | ✅            |                                   |
-| 图表 (流程图、UML 图) | ❌            | Image（仅下载支持）               |
+| 图表 (流程图、UML 图) | ❌            |                                   |
 | 分栏                  | ✅            | Flatten/Table/HTML               |
 | 多维表格              | 待定         |                                   |
 | 群名片                | 待定         |                                   |
-| 文件                  | ❌            | Link（仅下载支持）                |
+| 文件                  | ❌            |                                   |
 | 内嵌网页              | ✅            | HTML                              |
 | 小组件                | 待定         | 文本绘图 -> Code Block ✅          |
 | 思维笔记              | 待定         |                                   |

@@ -9,9 +9,6 @@
     },
     "type-check": {
       "dependsOn": ["^build"]
-    },
-    "test": {
-      "dependsOn": ["^build"]
     }
   }
 }

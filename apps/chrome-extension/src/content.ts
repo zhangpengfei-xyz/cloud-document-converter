@@ -1,4 +1,3 @@
-import { chunk } from 'es-toolkit/array'
 import { EventName, portImpl } from './common/message'
 
 const COMMENT_BUTTON_CLASS = '.docx-comment__first-comment-btn'
@@ -16,8 +15,6 @@ const dispose = (): void => {
 
 interface Button {
   element: HTMLElement
-  width: number
-  height: number
 }
 
 const initButtons = (): void => {
@@ -58,23 +55,6 @@ const initButtons = (): void => {
 
     const operates = [
       {
-        type: 'copy',
-        innerHtml: `<svg aria-hidden="true" focusable="false" role="img" class="octicon octicon-copy" viewBox="0 0 16 16" width="16"
-          height="16" fill="currentColor">
-          <path
-              d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z">
-          </path>
-          <path
-              d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z">
-          </path>
-          </svg>`,
-        action: () => {
-          chrome.runtime
-            .sendMessage({ flag: 'copy_docx_as_markdown' })
-            .catch(console.error)
-        },
-      },
-      {
         type: 'view',
         innerHtml: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" 
         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
@@ -86,23 +66,6 @@ const initButtons = (): void => {
         action: () => {
           chrome.runtime
             .sendMessage({ flag: 'view_docx_as_markdown' })
-            .catch(console.error)
-        },
-      },
-      {
-        type: 'download',
-        innerHtml: `<svg aria-hidden="true" focusable="false" role="img" class="octicon octicon-download" viewBox="0 0 16 16"
-        width="16" height="16" fill="currentColor">
-        <path
-          d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z">
-        </path>
-        <path
-          d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z">
-        </path>
-      </svg>`,
-        action: () => {
-          chrome.runtime
-            .sendMessage({ flag: 'download_docx_as_markdown' })
             .catch(console.error)
         },
       },
@@ -121,8 +84,6 @@ const initButtons = (): void => {
 
       return {
         element: btn,
-        width: 36,
-        height: 36,
       }
     })
 
@@ -141,8 +102,8 @@ const initButtons = (): void => {
       const commentButton: HTMLDivElement | null =
         root.querySelector(COMMENT_BUTTON_CLASS)
 
-      const defaultBtnHeight = 36
       const defaultGap = 14
+      const defaultBtnHeight = 36
 
       // Comment button may not be displayed
       if (!commentButton) {
@@ -171,31 +132,15 @@ const initButtons = (): void => {
           bottom: initialBottom + (index + 1) * (gap + btnHeight),
         }))
       } else if (commentButtonRect.bottom === helpBlockRect.bottom) {
-        let bottom = windowHeight - commentButtonRect.bottom
+        const bottom =
+          windowHeight -
+          commentButtonRect.bottom +
+          defaultGap +
+          defaultBtnHeight
+        const right =
+          windowWidth - Math.max(commentButtonRect.right, helpBlockRect.right)
 
-        return chunk(buttons, 2)
-          .map(items => {
-            bottom += defaultGap + defaultBtnHeight
-
-            if (items.length === 2) {
-              return [
-                { right: windowWidth - commentButtonRect.right, bottom },
-                { right: windowWidth - helpBlockRect.right, bottom },
-              ]
-            }
-
-            const minRight =
-              windowWidth -
-              Math.max(commentButtonRect.right, helpBlockRect.right)
-
-            return [
-              {
-                right: minRight,
-                bottom,
-              },
-            ]
-          })
-          .flat(1)
+        return buttons.map(() => ({ right, bottom }))
       }
 
       return

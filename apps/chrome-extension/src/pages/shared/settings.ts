@@ -21,11 +21,9 @@ export const useSettings = <
   Key extends keyof Settings =
     | SettingKey.Locale
     | SettingKey.Theme
-    | SettingKey.DownloadMethod
     | SettingKey.Table
     | SettingKey.Grid
-    | SettingKey.TextHighlight
-    | SettingKey.DownloadFileWithUniqueName,
+    | SettingKey.TextHighlight,
 >(
   options: { keys?: Key[] } = {},
 ): {
@@ -41,11 +39,9 @@ export const useSettings = <
     keys = [
       SettingKey.Locale,
       SettingKey.Theme,
-      SettingKey.DownloadMethod,
       SettingKey.Table,
       SettingKey.Grid,
       SettingKey.TextHighlight,
-      SettingKey.DownloadFileWithUniqueName,
     ] as Key[],
   } = options
 

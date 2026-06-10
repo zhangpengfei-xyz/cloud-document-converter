@@ -4,24 +4,23 @@
 
 ## 1. 背景
 
-Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云文档页面中把 Docx 文档转换为 Markdown，并支持复制、预览和下载。项目采用 pnpm workspace + Turborepo 的 monorepo 结构，将浏览器扩展、核心转换引擎、公共工具和 E2E 测试分层维护。
+Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云文档页面中把 Docx 文档转换为 Markdown，并在新窗口中预览 Markdown。项目采用 pnpm workspace + Turborepo 的 monorepo 结构，将浏览器扩展、核心转换引擎和公共工具分层维护。
 
 ## 2. 设计目标
 
 ### 2.1 业务目标
 
-- 在飞书/Lark Docx 页面内提供低摩擦的 Markdown 导出能力。
-- 支持三类用户动作：复制 Markdown、预览 Markdown、下载 Markdown 或包含资源的 Zip。
-- 尽量保留文档结构，包括标题层级、列表、任务列表、表格、图片、附件、白板、流程图、iframe、内联样式和部分 ISV 块。
-- 为不同用户偏好提供可配置项，如语言、主题、表格输出方式、布局 Grid 输出方式、文本高亮和文件命名策略。
+- 在飞书/Lark Docx 页面内提供低摩擦的 Markdown 预览能力。
+- 支持用户把当前 Docx 文档转换为 Markdown 并在新窗口中查看。
+- 尽量保留文档结构，包括标题层级、列表、任务列表、表格、图片、iframe、内联样式和部分 ISV 块。
+- 为不同用户偏好提供可配置项，如语言、主题、表格输出方式、布局 Grid 输出方式和文本高亮。
 
 ### 2.2 技术目标
 
-- 核心转换逻辑与扩展 UI 解耦，便于单测、复用和独立发布。
+- 核心转换逻辑与扩展 UI 解耦，便于复用和独立发布。
 - 运行时依赖浏览器扩展权限，但转换逻辑尽量只依赖飞书页面暴露的运行时对象。
 - 支持 Manifest V3 的 Chrome 扩展运行模型，同时保留 Firefox 构建适配入口。
 - 使用 AST 作为中间表示，降低 Markdown 字符串拼接带来的格式风险。
-- 用 E2E 覆盖真实飞书页面中的关键转换路径。
 
 ### 2.3 非目标
 
@@ -41,10 +40,10 @@ flowchart LR
   ContextMenu --> Background
   FloatingButtons --> Background
 
-  Background --> InjectedScripts["MAIN world 注入脚本<br/>copy/view/download"]
+  Background --> InjectedScripts["MAIN world 注入脚本<br/>view"]
   InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/User/Toast/globalConfig"]
   InjectedScripts --> LarkPackage["@dolphin/lark<br/>Docx -> mdast -> Markdown"]
-  InjectedScripts --> Output["剪贴板/预览窗口/文件下载"]
+  InjectedScripts --> Output["预览窗口"]
 
   Options["Options 页面"] --> Storage["chrome.storage.sync"]
   InjectedScripts <-->|window.postMessage Port| Content["Content Script"]
@@ -65,8 +64,7 @@ flowchart LR
 | --- | --- | --- |
 | 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 统一脚本、依赖目录、Turborepo 任务缓存 |
 | Chrome Extension | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
-| Extension E2E | `apps/chrome-extension-e2e` | Playwright 扩展 E2E，包含真实飞书页面复制 Markdown 验证 |
-| Lark 转换库 | `packages/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片/文件 URL 解析 |
+| Lark 转换库 | `packages/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片公开 URL 解析 |
 | Common 工具库 | `packages/common` | 跨包通用工具、window message Port、时间常量、图片/SVG/DOM 工具 |
 | TS 配置 | `packages/typescript-config` | workspace 共享 TypeScript 配置 |
 | 版本变更 | `.changeset` | 多包发布变更记录 |
@@ -78,7 +76,6 @@ flowchart TD
   Extension["@dolphin/chrome-extension"] --> Lark["@dolphin/lark"]
   Extension --> Common["@dolphin/common"]
   Lark --> Common
-  E2E["chrome-extension-e2e"] --> Extension
 ```
 
 ## 5. 浏览器扩展架构
@@ -100,10 +97,7 @@ flowchart TD
 
 主要职责：
 
-- 在扩展安装时注册三个右键菜单：
-  - 下载为 Markdown
-  - 复制为 Markdown
-  - 查看 Markdown
+- 在扩展安装时注册“查看 Markdown”右键菜单。
 - 接收右键菜单点击事件，根据菜单 ID 注入对应脚本。
 - 接收 Popup 或页面浮动按钮发来的 `chrome.runtime.sendMessage`，查询当前激活 Tab 并注入对应脚本。
 - 通过 `chrome.scripting.executeScript` 把功能脚本注入到 `world: 'MAIN'`，让脚本可以访问飞书页面暴露在主世界的运行时对象。
@@ -114,7 +108,7 @@ flowchart TD
 
 主要职责：
 
-- 在飞书 Docx 页面上渲染三个固定定位浮动按钮：复制、预览、下载。
+- 在飞书 Docx 页面上渲染固定定位的预览按钮。
 - 监听飞书页面 DOM 变化，等待页面右侧帮助/评论按钮等锚点出现后计算按钮位置。
 - 监听 SPA 路由切换，清理旧按钮并重新初始化。
 - 作为 MAIN world 注入脚本与扩展 API 之间的桥：
@@ -129,8 +123,6 @@ flowchart TD
 Popup 是轻量命令菜单，包含：
 
 - 查看 Markdown
-- 复制 Markdown
-- 下载 Markdown
 - 帮助与反馈
 - 打开设置页
 
@@ -142,12 +134,10 @@ Popup 是轻量命令菜单，包含：
 
 - `apps/chrome-extension/src/pages/options/options.vue`
 - `apps/chrome-extension/src/pages/options/general.vue`
-- `apps/chrome-extension/src/pages/options/download.vue`
 
 Options 使用 Vue + Vue Router + TanStack Vue Query + vee-validate + zod：
 
 - `general` 配置语言、主题、表格输出方式、Grid 输出方式、文本高亮。
-- `download` 配置下载方式和资源文件唯一命名策略。
 - 设置读写封装在 `apps/chrome-extension/src/pages/shared/settings.ts`。
 - 开发环境下 storage 由 `apps/chrome-extension/src/lib/storage.ts` 用 `localStorage` 模拟，生产环境使用 `chrome.storage.sync`。
 
@@ -163,11 +153,11 @@ sequenceDiagram
   participant Tab as 当前飞书 Tab
   participant Main as MAIN world 脚本
 
-  U->>UI: 触发复制/预览/下载
+  U->>UI: 触发预览
   UI->>BG: 发送 flag 或 context menu id
   BG->>BG: 查询当前 active tab
   BG->>Tab: chrome.scripting.executeScript
-  Tab->>Main: 执行 copy/view/download 脚本
+  Tab->>Main: 执行 view 脚本
   Main->>Main: 校验页面并转换 Markdown
 ```
 
@@ -200,7 +190,7 @@ sequenceDiagram
 - `rootBlock`：读取 `PageMain.blockManager.rootBlockModel`。
 - `language`：读取用户语言并归一到 `zh` 或 `en`。
 - `pageTitle`：从 root block 文本推导文件名。
-- `isReady`：判断 block 是否仍为 pending，以及 synced reference/whiteboard 是否准备完成。
+- `isReady`：判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
 - `scrollTo`：滚动飞书文档容器，用于触发懒加载。
 - `intoMarkdownAST`：把飞书 block tree 转换成 mdast。
 - `Docx.stringify`：使用 `mdast-util-to-markdown` 输出 Markdown，并启用 GFM 删除线、任务列表、表格和数学表达式扩展。
@@ -210,8 +200,7 @@ sequenceDiagram
 `Transformer` 负责把飞书 block 转换成 mdast 节点。它维护以下转换过程状态：
 
 - `parent`：当前 mdast 父节点，用于决定图片是否包裹 paragraph、表格替换位置等。
-- `images`：转换过程中发现的图片、白板和图表资源。
-- `files`：转换过程中发现的附件资源。
+- `images`：转换过程中发现的图片资源。
 - `mentionUsers`：待二次解析的用户 mention。
 - `tableWithParents`：待按设置后处理的 table/grid 节点及其父节点。
 - `sequences`：标题自动编号状态。
@@ -227,12 +216,10 @@ sequenceDiagram
 | `BULLET`, `ORDERED`, `TODO` | `listItem`，随后合并为 `list` |
 | `QUOTE_CONTAINER`, `CALLOUT` | `blockquote` |
 | `DIVIDER` | thematic break |
-| `IMAGE` | `image`，记录 token 和 fetchSources |
-| `WHITEBOARD` | 可选转换为图片 Blob |
-| `DIAGRAM` | 可选转换为图片 Blob |
+| `IMAGE` | `image`，记录 token |
+| `WHITEBOARD`, `DIAGRAM`, `FILE` | 跳过 |
 | `TABLE` | `table`，记录列宽、合并单元格和异常子节点 |
 | `GRID` | `table` 或扁平化子块，取决于设置 |
-| `FILE` | `link`，记录 fetchFile |
 | `IFRAME` | HTML iframe |
 | `ISV` 文本绘图/时间线 | Mermaid code block |
 | 不支持块 | 跳过或降级 |
@@ -263,11 +250,11 @@ sequenceDiagram
 
 表格转 HTML 时会处理 `rowSpan`、`colSpan` 和 `colgroup`，避免 GFM 表格无法表达复杂结构。
 
-## 8. 三类核心业务流程
+## 8. 核心业务流程
 
-### 8.1 复制 Markdown
+### 8.1 预览 Markdown
 
-入口：`apps/chrome-extension/src/scripts/copy-lark-docx-as-markdown.ts`
+入口：`apps/chrome-extension/src/scripts/view-lark-docx-as-markdown.ts`
 
 流程：
 
@@ -275,60 +262,19 @@ sequenceDiagram
 2. 从设置桥读取表格、Grid、文本高亮设置。
 3. 调用 `docx.intoMarkdownAST` 生成 mdast。
 4. 解析 mention 用户。
-5. 将图片 token 转为飞书公开下载 URL，并调用 `copy_out` 让链接生效。
+5. 将图片 token 转为飞书公开 URL，并调用 `copy_out` 让链接生效。
 6. 按设置处理 table/grid。
 7. `Docx.stringify(root)` 输出 Markdown。
-8. 通过原型链上的 `navigator.clipboard.write` 写入剪贴板，规避页面对 clipboard API 的覆写。
+8. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
 9. 用 Toast 提示失败或可上报错误。
-
-### 8.2 预览 Markdown
-
-入口：`apps/chrome-extension/src/scripts/view-lark-docx-as-markdown.ts`
-
-流程与复制相似，但输出目标是 `window.open` 创建的新窗口。脚本将 Markdown 写入 `pre`，并注入简单样式。图片同样通过公开 URL 方式处理。
-
-### 8.3 下载 Markdown/Zip
-
-入口：`apps/chrome-extension/src/scripts/download-lark-docx-as-markdown.ts`
-
-下载流程比复制更复杂：
-
-1. 如文档未完全加载，自动滚动文档容器，触发飞书懒加载。
-2. 启用 `whiteboard`、`diagram`、`file` 转换选项。
-3. 生成 mdast，并收集图片、白板/图表 Blob、附件 link。
-4. 若没有资源，直接保存 `.md`。
-5. 若存在图片或附件，创建 `.zip`：
-   - Markdown 文件放在 Zip 根目录。
-   - 图片保存到 `images/`。
-   - 附件保存到 `files/`。
-   - Markdown 中资源 URL 替换为相对路径。
-6. 图片批量下载，图表逐个下载，附件支持进度 Toast 和取消。
-7. 根据设置选择下载方式：
-   - `showSaveFilePicker`：使用 `browser-fs-access`。
-   - `direct`：使用 legacy 下载方案。
 
 ## 9. 资源访问设计
 
 ### 9.1 图片
 
-图片资源有两种处理方式：
+预览流程使用 `@dolphin/lark/image` 根据 token 生成公开 URL，并调用 `/api/docx/resources/copy_out` 使 URL 生效。
 
-- 复制/预览：使用 `@dolphin/lark/image` 根据 token 生成公开 URL，并调用 `/api/docx/resources/copy_out` 使 URL 生效。
-- 下载：通过飞书页面 image manager 获取图片源，再 fetch Blob，写入 Zip 的 `images/`。
-
-### 9.2 白板与图表
-
-- 白板：定位对应 block，使用飞书页面的 RatioApp/Canvas 能力导出图像 Blob。
-- 图表：定位对应 block，读取 SVG，再转换为 Blob。
-- 这些资源只在下载流程中开启，复制/预览默认不处理为本地资源。
-
-### 9.3 附件
-
-附件下载链接由 `packages/lark/src/file.ts` 解析：
-
-- 从 `window.globalConfig.drive_api` 获取 drive API host。
-- 结合文件 token、record id、当前文档 token 拼出 `/api/box/stream/download/all/` 下载 URL。
-- 使用 `credentials: 'include'` 携带当前飞书登录态。
+白板、图表和附件不再在预览流程中转换为本地资源或访问链接。
 
 ## 10. 设置、国际化与主题
 
@@ -340,11 +286,9 @@ sequenceDiagram
 | --- | --- | --- |
 | `general.locale` | UI 语言 | `en-US` 或浏览器 UI 语言 |
 | `general.theme` | 主题 | `system` |
-| `download.method` | 下载方式 | 浏览器支持时 `showSaveFilePicker`，否则 `direct` |
 | `general.table` | 表格输出策略 | `nonPhrasingContentToHTML` |
 | `general.grid` | Grid 输出策略 | `flatten` |
 | `general.text_highlight` | 是否保留文本高亮 | `true` |
-| `download.file_with_unique_name` | 资源文件是否使用 UUID 命名 | `false` |
 
 ### 10.2 国际化
 
@@ -385,51 +329,27 @@ Options 和 Popup 通过共享 `theme.ts` 初始化主题。主题设置保存�
 Turborepo 根任务：
 
 - `build` 依赖上游包 `^build`，输出缓存 `dist/**`。
-- `type-check` 和 `test` 依赖上游构建。
+- `type-check` 依赖上游构建。
 
-## 12. 测试架构
-
-### 12.1 单元测试
-
-- `packages/lark/tests` 使用 Vitest 测试 Docx 转换逻辑。
-- `packages/common/tests` 使用 Vitest 测试通用工具。
-- `apps/chrome-extension/tests` 使用 Vitest 测试扩展侧工具。
-
-### 12.2 E2E 测试
-
-`apps/chrome-extension-e2e` 使用 Playwright：
-
-- `global-setup.ts` 默认先构建扩展，再复制到 `.cache/extension`。
-- 测试通过 Chromium persistent context 加载扩展。
-- `live-copy-markdown.e2e.test.ts` 打开真实飞书页面，点击页面浮动复制按钮，读取剪贴板并断言 Markdown 输出。
-- 支持通过环境变量控制 headless、固定 user data dir 和目标文档。
-
-## 13. 安全与隐私设计
+## 12. 安全与隐私设计
 
 - 所有转换在浏览器本地执行，不引入项目自有后端。
 - host permissions 限定在飞书/Lark 相关域名，减少扩展可访问范围。
-- 下载附件和图片依赖用户当前飞书登录态，请求直接发往飞书域名。
-- 复制/预览图片公开 URL 时调用飞书 `copy_out` API，属于当前用户上下文内的页面能力。
-- E2E 持久化浏览器 profile 位于 `.cache`，不应提交到仓库。
-- 文档 fixture、快照和测试输出应避免包含私有文档内容、token、cookie。
+- 预览图片公开 URL 时调用飞书 `copy_out` API，属于当前用户上下文内的页面能力。
+- 文档调试输出应避免包含私有文档内容、token、cookie。
 
-## 14. 主要架构风险
+## 13. 主要架构风险
 
 | 风险 | 影响 | 应对建议 |
 | --- | --- | --- |
-| 依赖飞书页面私有运行时对象 | 飞书前端结构变更可能导致转换失效 | 为 `PageMain`、block schema、DOM selector 增加更明确的兼容层和 E2E 监控 |
-| Content script 和 MAIN world 之间需要桥接 | 消息协议错误会影响设置读取 | 保持 `Port` 协议最小化，增加异步响应 ID 匹配测试 |
+| 依赖飞书页面私有运行时对象 | 飞书前端结构变更可能导致转换失效 | 为 `PageMain`、block schema、DOM selector 增加更明确的兼容层 |
+| Content script 和 MAIN world 之间需要桥接 | 消息协议错误会影响设置读取 | 保持 `Port` 协议最小化，集中维护异步响应 ID 匹配逻辑 |
 | 复杂表格与 Grid 无法完全用 GFM 表达 | Markdown 输出可能丢结构 | 继续使用 HTML 降级，并在设置中暴露策略 |
-| 大文档资源下载耗时长 | 用户等待时间长，页面刷新会中断 | 继续保留进度、取消、分批下载，后续可加资源失败汇总 |
-| 白板/图表导出依赖页面渲染 | 未滚动到视口或懒加载未完成时资源为空 | 下载前滚动准备已覆盖一部分场景，后续可加更细粒度的资源 ready 检查 |
-| 剪贴板和文件保存受用户激活限制 | 后台注入脚本可能无法直接写入/保存 | 当前通过确认弹窗恢复用户意图，后续可统一抽象用户激活处理 |
+| 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 当前通过确认弹窗恢复用户意图，后续可统一抽象用户激活处理 |
 
-## 15. 演进建议
+## 14. 演进建议
 
 1. 抽象页面运行时适配层：把 `window.PageMain`、`window.globalConfig`、DOM selector 集中到独立 adapter，降低飞书改版影响面。
-2. 增强转换快照测试：为 heading sequence、mention、复杂 table/grid、whiteboard、diagram、file 增加稳定 fixture。
-3. 收敛三个功能脚本的重复逻辑：复制、预览、下载都包含页面校验、设置读取、AST 转换、mention/table 后处理，可提取共享 pipeline。
-4. 强化资源失败可观测性：Zip 下载时记录失败资源列表，最终 Toast 或报告中展示失败原因。
-5. 完善浏览器兼容矩阵：持续验证 Chromium 与 Firefox target 的 manifest、background 和文件保存差异。
-6. 对 E2E 引入更小的 synthetic 页面或 mock runtime：保留 live E2E 的同时，减少日常 CI 对真实飞书页面和账号状态的依赖。
-
+2. 收敛预览脚本中的页面校验、设置读取、AST 转换、mention/table 后处理，让流程更容易复用。
+3. 强化资源失败可观测性：公开 URL 生效失败时记录失败资源列表，最终 Toast 或报告中展示失败原因。
+4. 完善浏览器兼容矩阵：持续验证 Chromium 与 Firefox target 的 manifest、background 和窗口打开行为差异。

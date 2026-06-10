@@ -5,8 +5,7 @@
   "scripts": {
     "type-check": "vue-tsc -b",
     "build": "node --experimental-strip-types ./scripts/cli.ts build",
-    "dev:pages": "vite",
-    "test": "vitest run"
+    "dev:pages": "vite"
   },
   "devDependencies": {
     "@babel/core": "catalog:dev",
@@ -36,19 +35,14 @@
     "@tanstack/vue-query": "catalog:prod",
     "@vee-validate/zod": "catalog:prod",
     "@vueuse/core": "catalog:prod",
-    "@zip.js/zip.js": "catalog:prod",
-    "browser-fs-access": "catalog:network",
     "class-variance-authority": "catalog:prod",
     "es-toolkit": "catalog:prod",
-    "filenamify": "catalog:prod",
     "hast-util-to-html": "catalog:prod",
     "i18next": "catalog:i18n",
     "lucide-vue-next": "catalog:prod",
     "mdast-util-to-hast": "catalog:prod",
-    "radash": "catalog:prod",
     "reka-ui": "catalog:prod",
     "serialize-error": "catalog:prod",
-    "uuid": "catalog:prod",
     "vee-validate": "catalog:prod",
     "vue": "catalog:prod",
     "vue-i18n": "catalog:prod",

@@ -1,15 +1,6 @@
 import type * as mdast from 'mdast'
 import { chunk } from 'es-toolkit/array'
-import {
-  toBlob as svgToBlob,
-  imageDataToBlob,
-  compare,
-  isDefined,
-  waitForFunction,
-  OneHundred,
-  Second,
-  checkCanvasDimensions,
-} from '@dolphin/common'
+import { compare, isDefined, OneHundred } from '@dolphin/common'
 import { toMarkdown, type Options } from 'mdast-util-to-markdown'
 import { gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
 import { gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
@@ -24,7 +15,6 @@ import {
   isTableCell,
   isListItemContent,
 } from './utils/mdast'
-import { resolveFileDownloadUrl } from './file'
 import { isString } from 'es-toolkit/compat'
 import { escape } from 'es-toolkit/compat'
 import { toCamelCaseKeys } from 'es-toolkit/object'
@@ -33,17 +23,10 @@ declare module 'mdast' {
   interface ImageData {
     name?: string
     token?: string
-    fetchSources?: () => Promise<ImageSources | null>
-    fetchBlob?: () => Promise<Blob | null>
   }
 
   interface ListItemData {
     seq?: number | 'auto'
-  }
-
-  interface LinkData {
-    name?: string
-    fetchFile?: (init?: RequestInit) => Promise<Response>
   }
 
   interface TableData {
@@ -243,29 +226,11 @@ interface ImageBlockData {
   caption?: Caption
 }
 
-interface ImageSources {
-  originSrc: string
-  src: string
-}
-
 interface ImageBlock extends Block {
   type: BlockType.IMAGE
   snapshot: {
     type: BlockType.IMAGE
     image: ImageBlockData
-  }
-  imageManager: {
-    fetch: (
-      image: {
-        token: string
-        isHD: boolean
-        fuzzy: boolean
-        width?: number
-        height?: number
-      },
-      options: unknown,
-      callback: (sources: ImageSources) => void,
-    ) => Promise<void>
   }
 }
 
@@ -328,94 +293,23 @@ interface SyncedReference extends Block {
   innerBlockManager?: SyncedReferenceInnerBlockManager
 }
 
-interface ImageDataWrapper {
-  data: ImageData
-  release: () => void
-}
-
-interface RatioApp {
-  ratioAppProxy: {
-    getOriginImageDataByNodeId: (
-      i: 24,
-      o: [''],
-      r: false,
-      n: number,
-    ) => Promise<ImageDataWrapper | null>
-  }
-  app?: {
-    application: {
-      nodeManager: {
-        getNodesBounds: () => {
-          minX: number
-          maxX: number
-          minY: number
-          maxY: number
-        }
-      }
-    }
-    renderManager: {
-      getImageOffscreenCanvas: (
-        bounds: {
-          minX: number
-          maxX: number
-          minY: number
-          maxY: number
-        },
-        r: number,
-        bgColor: string,
-      ) => HTMLCanvasElement | null
-    }
-  }
-}
-
-interface WhiteboardBlock {
-  isolateEnv: {
-    hasRatioApp: () => boolean
-    getRatioApp: () => RatioApp
-  }
-  abilityKit: {
-    getRatioApp: () => RatioApp
-  }
-}
-
 interface Whiteboard extends Block {
   type: BlockType.WHITEBOARD
-  whiteboardBlock?: WhiteboardBlock
   snapshot: {
     type: BlockType.WHITEBOARD
     caption?: Caption
   }
 }
 
-interface BlockView {
-  getSvg: () => SVGElement | null
-}
-
-interface BlockManager {
-  getBlockViewByBlockId: (blockId: number) => BlockView | null
-}
-
 interface DiagramBlock extends Block {
   type: BlockType.DIAGRAM
-  blockManager?: BlockManager
   snapshot: {
     type: BlockType.DIAGRAM
   }
 }
 
-interface View extends Block<File> {
+interface View extends Block {
   type: BlockType.VIEW
-}
-
-interface File extends Block {
-  type: BlockType.FILE
-  snapshot: {
-    type: BlockType.FILE
-    file: {
-      name: string
-      token: string
-    }
-  }
 }
 
 enum ISVBlockTypeId {
@@ -529,7 +423,6 @@ type Blocks =
   | Whiteboard
   | DiagramBlock
   | View
-  | File
   | IframeBlock
   | ISVBlocks
   | NotSupportedBlock
@@ -944,82 +837,6 @@ export const transformOperationsToPhrasingContents = (
   }
 }
 
-const fetchImageSources = (imageBlock: ImageBlock) =>
-  new Promise<ImageSources>((resolve, reject) => {
-    const {
-      imageManager,
-      snapshot: {
-        image: { token },
-      },
-    } = imageBlock
-
-    imageManager
-      .fetch({ token, isHD: true, fuzzy: false }, {}, resolve)
-      .catch(reject)
-  })
-
-const whiteboardToBlob = async (
-  whiteboard: Whiteboard,
-): Promise<Blob | null> => {
-  if (!whiteboard.whiteboardBlock) return null
-
-  const padding = 24
-  const ratio = window.devicePixelRatio
-  const backgroundColor = '#ffffff'
-
-  let rationApp = whiteboard.whiteboardBlock.abilityKit.getRatioApp()
-
-  if (rationApp.app) {
-    const bounds = rationApp.app.application.nodeManager.getNodesBounds()
-    bounds.maxX += padding
-    bounds.minX -= padding
-    bounds.maxY += padding
-    bounds.minY -= padding
-
-    const canvas = rationApp.app.renderManager.getImageOffscreenCanvas(
-      bounds,
-      ratio,
-      backgroundColor,
-    )
-
-    if (!canvas) return null
-
-    return new Promise(resolve => {
-      checkCanvasDimensions(canvas)
-
-      canvas.toBlob(resolve)
-    })
-  }
-
-  rationApp = whiteboard.whiteboardBlock.isolateEnv.getRatioApp()
-
-  const imageDataWrapper =
-    await rationApp.ratioAppProxy.getOriginImageDataByNodeId(
-      padding,
-      [''],
-      false,
-      ratio,
-    )
-
-  if (!imageDataWrapper) return null
-
-  return await imageDataToBlob(imageDataWrapper.data, {
-    onDispose: imageDataWrapper.release,
-  })
-}
-
-const diagramToSVGElement = (diagram: DiagramBlock): SVGElement | null => {
-  if (!diagram.blockManager) return null
-
-  const blockView = diagram.blockManager.getBlockViewByBlockId(diagram.id)
-  if (!blockView) return null
-
-  const svgElement = blockView.getSvg()
-  if (!svgElement) return null
-
-  return svgElement
-}
-
 const generateMermaidTimeline = (items: Timeline[]): string => {
   let chart = 'timeline\n'
 
@@ -1059,34 +876,15 @@ type Mutate<T extends Block> = T extends PageBlock
                 ? mdast.Table
                 : T extends TableCellBlock | GridColumn
                   ? mdast.TableCell
-                  : T extends Whiteboard | DiagramBlock
-                    ? mdast.Image
-                    : T extends View
-                      ? mdast.Paragraph
-                      : T extends File
-                        ? mdast.Link
-                        : T extends IframeBlock
-                          ? mdast.Html
-                          : T extends TextDrawingBlock | TimelineBlock
-                            ? mdast.Code
-                            : null
+                  : T extends View
+                    ? mdast.Paragraph
+                    : T extends IframeBlock
+                      ? mdast.Html
+                      : T extends TextDrawingBlock | TimelineBlock
+                        ? mdast.Code
+                        : null
 
 interface TransformerOptions {
-  /**
-   * Enable convert whiteboard to image.
-   * @default false
-   */
-  whiteboard?: boolean
-  /**
-   * Enable convert diagram to image.
-   * @default false
-   */
-  diagram?: boolean
-  /**
-   * Enable convert file to resource link.
-   * @default false
-   */
-  file?: boolean
   /**
    * Enable convert text highlight to html.
    * @default false
@@ -1097,10 +895,6 @@ interface TransformerOptions {
    * @default false
    */
   flatGrid?: boolean
-  /**
-   * Locate block with record id.
-   */
-  locateBlockWithRecordId?: (recordId: string) => Promise<boolean>
 }
 
 export interface TableWithParent {
@@ -1112,7 +906,6 @@ interface TransformResult<T> {
   root: T
   images: mdast.Image[]
   tableWithParents: TableWithParent[]
-  files: mdast.Link[]
   mentionUsers: mdast.InlineCode[]
 }
 
@@ -1122,19 +915,12 @@ export class Transformer {
   private mentionUsers: mdast.InlineCode[] = []
   private tableWithParents: TableWithParent[] = []
   /**
-   * Resource link to file.
-   */
-  private files: mdast.Link[] = []
-  /**
    * heading sequence state
    */
   private sequences: (string | undefined)[] = []
 
   constructor(
     public options: TransformerOptions = {
-      whiteboard: false,
-      diagram: false,
-      file: false,
       highlight: false,
       flatGrid: false,
     },
@@ -1355,7 +1141,6 @@ export class Transformer {
             data: {
               name,
               token,
-              fetchSources: () => fetchImageSources(block),
             },
           }
           return image
@@ -1368,89 +1153,10 @@ export class Transformer {
         return this.normalizeImage(image)
       }
       case BlockType.WHITEBOARD: {
-        if (!this.options.whiteboard) return null
-
-        const whiteboardToImage = (whiteboard: Whiteboard): mdast.Image => {
-          const image: mdast.Image = {
-            type: 'image',
-            url: '',
-            alt: evaluateAlt(whiteboard.snapshot.caption),
-            data: {
-              fetchBlob: async () => {
-                try {
-                  const {
-                    locateBlockWithRecordId = () => Promise.resolve(false),
-                  } = this.options
-
-                  await waitForFunction(
-                    () =>
-                      locateBlockWithRecordId(whiteboard.record?.id ?? '').then(
-                        isSuccess =>
-                          isSuccess && whiteboard.whiteboardBlock !== undefined,
-                      ),
-                    {
-                      timeout: 3 * Second,
-                    },
-                  )
-                } catch (error) {
-                  console.error(error)
-                }
-
-                return await whiteboardToBlob(whiteboard)
-              },
-            },
-          }
-          return image
-        }
-
-        const image: mdast.Image = whiteboardToImage(block)
-
-        this.images.push(image)
-
-        return this.normalizeImage(image)
+        return null
       }
       case BlockType.DIAGRAM: {
-        if (!this.options.diagram) return null
-
-        const diagramToImage = (diagram: DiagramBlock): mdast.Image => {
-          const image: mdast.Image = {
-            type: 'image',
-            url: '',
-            data: {
-              fetchBlob: async () => {
-                try {
-                  const {
-                    locateBlockWithRecordId = () => Promise.resolve(false),
-                  } = this.options
-
-                  await waitForFunction(
-                    () =>
-                      locateBlockWithRecordId(diagram.record?.id ?? '').then(
-                        isSuccess => isSuccess,
-                      ),
-                    {
-                      timeout: 3 * Second,
-                    },
-                  )
-                } catch (error) {
-                  console.error(error)
-                }
-
-                const svgElement = diagramToSVGElement(diagram)
-                if (!svgElement) return null
-
-                return await svgToBlob(svgElement)
-              },
-            },
-          }
-          return image
-        }
-
-        const image: mdast.Image = diagramToImage(block)
-
-        this.images.push(image)
-
-        return this.normalizeImage(image)
+        return null
       }
       case BlockType.TABLE:
       case BlockType.GRID: {
@@ -1566,47 +1272,10 @@ export class Transformer {
         )
       }
       case BlockType.VIEW: {
-        if (!this.options.file) return null
-
-        const paragraph: mdast.Paragraph = this.transformParentBlock(
-          block,
-          () => ({
-            type: 'paragraph',
-            children: [],
-          }),
-          nodes => nodes.filter(isPhrasingContent),
-        )
-        return paragraph
+        return null
       }
       case BlockType.FILE: {
-        if (!this.options.file) return null
-
-        const { name, token } = block.snapshot.file
-
-        const link: mdast.Link = {
-          type: 'link',
-          url: '',
-          children: [{ type: 'text', value: name }],
-          data: {
-            name,
-            fetchFile: (init?: RequestInit) =>
-              fetch(
-                resolveFileDownloadUrl({
-                  token,
-                  recordId: block.record?.id ?? '',
-                }),
-                {
-                  method: 'Get',
-                  credentials: 'include',
-                  ...init,
-                },
-              ),
-          },
-        }
-
-        this.files.push(link)
-
-        return link
+        return null
       }
       case BlockType.IFRAME: {
         return iframeToHTML(block)
@@ -1644,7 +1313,6 @@ export class Transformer {
       root: node,
       images: this.images,
       tableWithParents: this.tableWithParents,
-      files: this.files,
       mentionUsers: this.mentionUsers,
     }
 
@@ -1652,7 +1320,6 @@ export class Transformer {
 
     this.images = []
     this.tableWithParents = []
-    this.files = []
     this.mentionUsers = []
 
     this.sequences = []
@@ -1782,14 +1449,11 @@ export class Docx {
         root: { type: 'root', children: [] },
         images: [],
         tableWithParents: [],
-        files: [],
         mentionUsers: [],
       }
     }
 
     const transformer = new Transformer({
-      locateBlockWithRecordId: recordId =>
-        Docx.locateBlockWithRecordId(recordId),
       ...transformerOptions,
     })
 

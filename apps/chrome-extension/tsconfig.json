@@ -4,8 +4,7 @@
     { "path": "./tsconfig.node.json" },
     { "path": "./tsconfig.web.json" },
     { "path": "./tsconfig.extension.json" },
-    { "path": "./tsconfig.pages.json" },
-    { "path": "./tsconfig.test.json" }
+    { "path": "./tsconfig.pages.json" }
   ],
   "compilerOptions": {
     "baseUrl": ".",
