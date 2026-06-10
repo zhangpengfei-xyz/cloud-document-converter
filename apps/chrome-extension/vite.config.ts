@@ -13,7 +13,6 @@ export default defineConfig(({ mode }) => ({
   build: {
     rollupOptions: {
       input: {
-        options: resolve(__dirname, 'options.html'),
         popup: resolve(__dirname, 'popup.html'),
       },
       output: {

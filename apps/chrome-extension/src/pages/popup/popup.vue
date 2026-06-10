@@ -1,61 +1,29 @@
 <script setup lang="ts">
-import { Eye, Info, Settings } from 'lucide-vue-next'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
+import { Eye } from 'lucide-vue-next'
 import { Flag } from '@/common/message'
-import { useInitTheme } from '../shared/theme'
 
-useInitTheme()
-
-const handleMessage = async (flag: Flag) => {
+const handleViewAsMarkdown = async () => {
   if (import.meta.env.DEV) {
-    console.log(`chrome.runtime.sendMessage({ flag: '${flag}'})`)
+    console.log(
+      `chrome.runtime.sendMessage({ flag: '${Flag.ExecuteViewScript}'})`,
+    )
   } else {
-    await chrome.runtime.sendMessage({ flag })
+    await chrome.runtime.sendMessage({ flag: Flag.ExecuteViewScript })
   }
 
   window.close()
 }
-
-const handleOpenOptionsPage = () => {
-  if (import.meta.env.DEV) {
-    window.open('/pages/options', '_blank')
-  } else {
-    chrome.runtime.openOptionsPage()
-  }
-}
 </script>
 
 <template>
-  <DropdownMenu :open="true">
-    <DropdownMenuContent class="border-0 rounded-none">
-      <DropdownMenuItem @select="() => handleMessage(Flag.ExecuteViewScript)">
-        <Eye />
-        View as Markdown
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem
-        :as-child="true"
-        class="underline-offset-4 hover:underline"
-        href="https://github.com/whale4113/cloud-document-converter"
-        target="_blank"
-      >
-        <a>
-          <Info />
-          Help and Feedback
-        </a>
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        class="underline-offset-4 hover:underline"
-        @select="handleOpenOptionsPage"
-      >
-        <Settings />
-        Settings
-      </DropdownMenuItem>
-    </DropdownMenuContent>
-  </DropdownMenu>
+  <main class="w-48 bg-popover p-1 text-popover-foreground">
+    <button
+      type="button"
+      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      @click="handleViewAsMarkdown"
+    >
+      <Eye class="size-4 text-muted-foreground" />
+      <span>View as Markdown</span>
+    </button>
+  </main>
 </template>

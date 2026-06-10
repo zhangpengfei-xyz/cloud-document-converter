@@ -4,7 +4,7 @@ import {
   transformMentionUsers,
   transformTableBySettings,
 } from '../common/utils'
-import { getSettings, SettingKey, Grid } from '../common/settings'
+import { fallbackSettings, SettingKey, Grid } from '../common/settings'
 
 const message = {
   unknownError: 'Unknown error while opening preview',
@@ -38,11 +38,7 @@ const main = async () => {
     return
   }
 
-  const settings = await getSettings([
-    SettingKey.Table,
-    SettingKey.Grid,
-    SettingKey.TextHighlight,
-  ])
+  const settings = fallbackSettings
 
   const { root, tableWithParents, mentionUsers } = docx.intoMarkdownAST({
     highlight: settings[SettingKey.TextHighlight],

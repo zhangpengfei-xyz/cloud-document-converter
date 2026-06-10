@@ -1,7 +1,3 @@
-import { pick } from 'es-toolkit'
-import { defaultsDeep } from 'es-toolkit/compat'
-import { EventName, portImpl } from './message'
-
 export enum SettingKey {
   Theme = 'general.theme',
   Table = 'general.table',
@@ -36,23 +32,7 @@ export interface Settings {
 
 export const fallbackSettings: Settings = {
   [SettingKey.Theme]: Theme.System,
-  [SettingKey.Table]: Table.NonPhrasingContentToHTML,
+  [SettingKey.Table]: Table.ToHTML,
   [SettingKey.Grid]: Grid.Flatten,
   [SettingKey.TextHighlight]: true,
-}
-
-export const getSettings = async <Key extends keyof Settings>(
-  keys: Key[],
-): Promise<Pick<Settings, Key>> => {
-  try {
-    const settings = await portImpl.sender.sendAsync(
-      EventName.GetSettings,
-      keys,
-    )
-    return pick(defaultsDeep(settings, fallbackSettings), keys)
-  } catch (error) {
-    console.error(error)
-
-    return pick(fallbackSettings, keys)
-  }
 }

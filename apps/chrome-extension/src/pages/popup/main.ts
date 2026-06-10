@@ -1,10 +1,27 @@
 import { createApp } from 'vue'
-import { VueQueryPlugin } from '@tanstack/vue-query'
 import App from './popup.vue'
-import { initTheme } from '../shared/theme'
+import { fallbackSettings, SettingKey, Theme } from '@/common/settings'
 import '../shared/shared.css'
 import './main.css'
 
-createApp(App).use(VueQueryPlugin).mount('#app')
+const preferredDark = (theme: Theme): boolean =>
+  theme === Theme.System
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+    : theme === Theme.Dark
 
-initTheme()
+const updateTheme = (): void => {
+  document.documentElement.classList.toggle(
+    'dark',
+    preferredDark(fallbackSettings[SettingKey.Theme]),
+  )
+}
+
+createApp(App).mount('#app')
+
+updateTheme()
+
+if (fallbackSettings[SettingKey.Theme] === Theme.System) {
+  window
+    .matchMedia('(prefers-color-scheme: dark)')
+    .addEventListener('change', updateTheme, { passive: true })
+}

@@ -12,7 +12,6 @@
     "@babel/plugin-transform-runtime": "catalog:dev",
     "@babel/preset-env": "catalog:dev",
     "@babel/preset-typescript": "catalog:dev",
-    "@internationalized/date": "catalog:dev",
     "@rollup/plugin-babel": "catalog:build",
     "@tailwindcss/vite": "catalog:dev",
     "@vitejs/plugin-vue": "catalog:dev",
@@ -21,21 +20,13 @@
     "@types/mdast": "catalog:types",
     "cac": "catalog:dev",
     "chrome-types": "catalog:dev",
-    "clsx": "catalog:dev",
     "execa": "catalog:node",
     "glob": "catalog:node",
-    "tailwind-merge": "catalog:dev",
-    "tailwind-variants": "catalog:dev",
     "tailwindcss": "catalog:dev",
-    "tw-animate-css": "catalog:dev",
     "vue-tsc": "catalog:tools"
   },
   "dependencies": {
     "@babel/runtime": "catalog:prod",
-    "@tanstack/vue-query": "catalog:prod",
-    "@vee-validate/zod": "catalog:prod",
-    "@vueuse/core": "catalog:prod",
-    "class-variance-authority": "catalog:prod",
     "es-toolkit": "catalog:prod",
     "hast-util-to-html": "catalog:prod",
     "lucide-vue-next": "catalog:prod",
@@ -45,12 +36,8 @@
     "mdast-util-math": "catalog:prod",
     "mdast-util-to-hast": "catalog:prod",
     "mdast-util-to-markdown": "catalog:markdown",
-    "reka-ui": "catalog:prod",
     "serialize-error": "catalog:prod",
-    "vee-validate": "catalog:prod",
-    "vue": "catalog:prod",
-    "vue-router": "catalog:prod",
-    "zod": "catalog:prod"
+    "vue": "catalog:prod"
   },
   "browserslist": [
     "defaults and fully supports es6-module"

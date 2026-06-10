@@ -1,4 +1,10 @@
-[data-reka-popper-content-wrapper] {
-  position: static !important;
-  transform: unset !important;
+html,
+body,
+#app {
+  margin: 0;
+  min-width: 12rem;
+}
+
+body {
+  overflow: hidden;
 }
