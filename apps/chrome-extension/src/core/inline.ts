@@ -28,6 +28,19 @@ const markAttributeNames = ['italic', 'bold', 'strikethrough', 'link'] as const
 type MarkAttributeName = (typeof markAttributeNames)[number]
 type MarkNodeType = 'emphasis' | 'strong' | 'delete' | 'link'
 
+const literalAttributeNames = [
+  'inlineCode',
+  'equation',
+  'mentionUserId',
+  'underline',
+  'inline-component',
+] as const
+
+const renderableAttributeNames = [
+  ...markAttributeNames,
+  ...literalAttributeNames,
+] as const
+
 const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
   italic: 'emphasis',
   bold: 'strong',
@@ -38,12 +51,20 @@ const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
 const isMarkAttributeName = (attr: string): attr is MarkAttributeName =>
   (markAttributeNames as readonly string[]).includes(attr)
 
+const isRenderableAttributeName = (
+  attr: string,
+): attr is (typeof renderableAttributeNames)[number] =>
+  (renderableAttributeNames as readonly string[]).includes(attr)
+
+const hasRenderableAttributes = (operation: Operation): boolean =>
+  Object.keys(operation.attributes ?? {}).some(isRenderableAttributeName)
+
 const isRenderableOperation = (operation: Operation): boolean => {
   if (isNotNil(operation.attributes?.fixEnter)) {
     return false
   }
 
-  return isNotNil(operation.attributes) || operation.insert !== '\n'
+  return hasRenderableAttributes(operation) || operation.insert !== '\n'
 }
 
 const parseInlineComponent = (value?: string): InlineComponent | null => {
@@ -134,30 +155,9 @@ const sortOperationMarks = (
         markSpanLength(b, index, marksByIndex, operations),
     )
 
-const createHtmlWrapper = (
-  tagName: string,
-  attributes?: string,
-): [mdast.Html, mdast.Html] => [
-  {
-    type: 'html',
-    value: attributes ? `<${tagName} ${attributes}>` : `<${tagName}>`,
-  },
-  {
-    type: 'html',
-    value: `</${tagName}>`,
-  },
-]
-
 const createLiteralNodes = (op: Operation): mdast.PhrasingContent[] => {
   const { attributes, insert } = op
-  const {
-    inlineCode,
-    equation,
-    textHighlight,
-    textHighlightBackground,
-    mentionUserId,
-    underline,
-  } = attributes ?? {}
+  const { inlineCode, equation, mentionUserId, underline } = attributes ?? {}
 
   if (mentionUserId) {
     return [
@@ -189,24 +189,15 @@ const createLiteralNodes = (op: Operation): mdast.PhrasingContent[] => {
     ]
   }
 
-  let nodes: mdast.PhrasingContent[] = [{ type: 'text', value: insert }]
-
-  if (textHighlight || textHighlightBackground) {
-    const [open, close] = createHtmlWrapper(
-      'span',
-      `style="color: ${textHighlight ?? 'inherit'}; background-color: ${textHighlightBackground ?? 'inherit'}"`,
-    )
-
-    nodes = [open, ...nodes, close]
-  }
-
   if (underline) {
-    const [open, close] = createHtmlWrapper('u')
-
-    nodes = [open, ...nodes, close]
+    return [
+      { type: 'html', value: '<u>' },
+      { type: 'text', value: insert },
+      { type: 'html', value: '</u>' },
+    ]
   }
 
-  return nodes
+  return [{ type: 'text', value: insert }]
 }
 
 const wrapWithMark = (

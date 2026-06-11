@@ -1,30 +1,21 @@
 import type * as mdast from 'mdast'
 
-export const isParent = (node: mdast.Node): node is mdast.Parent =>
-  'children' in node && Array.isArray(node.children)
-
 export const isRootContent = (node: mdast.Nodes): node is mdast.RootContent =>
-  !isRoot(node)
+  node.type !== 'root'
 
-export const isBlockContent = (node: mdast.Nodes): node is mdast.BlockContent =>
+export const isBlockquoteContent = (
+  node: mdast.Nodes,
+): node is mdast.BlockContent | mdast.DefinitionContent =>
   node.type === 'blockquote' ||
   node.type === 'code' ||
+  node.type === 'definition' ||
+  node.type === 'footnoteDefinition' ||
   node.type === 'heading' ||
   node.type === 'html' ||
   node.type === 'list' ||
   node.type === 'paragraph' ||
   node.type === 'table' ||
   node.type === 'thematicBreak'
-
-export const isDefinitionContent = (
-  node: mdast.Nodes,
-): node is mdast.DefinitionContent =>
-  node.type === 'definition' || node.type === 'footnoteDefinition'
-
-export const isBlockquoteContent = (
-  node: mdast.Nodes,
-): node is mdast.BlockContent | mdast.DefinitionContent =>
-  isBlockContent(node) || isDefinitionContent(node)
 
 export const isListItemContent: (
   node: mdast.Nodes,
@@ -46,9 +37,6 @@ export const isPhrasingContent = (
   node.type === 'linkReference' ||
   node.type === 'strong' ||
   node.type === 'text'
-
-export const isRoot = (node: mdast.Nodes): node is mdast.Root =>
-  node.type === 'root'
 
 export const isTableCell = (node: mdast.Nodes): node is mdast.TableCell =>
   node.type === 'tableCell'
