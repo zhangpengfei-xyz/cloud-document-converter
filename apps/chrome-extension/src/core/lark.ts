@@ -74,6 +74,7 @@ export interface BlockSnapshot {
 }
 
 export interface Block<T extends Blocks = Blocks> {
+  id?: string
   type: BlockType
   zoneState?: BlockZoneState
   record?: { id: string }
@@ -83,6 +84,45 @@ export interface Block<T extends Blocks = Blocks> {
 
 export interface PageBlock extends Block {
   type: BlockType.PAGE
+}
+
+export interface PageMain {
+  blockManager: {
+    rootBlockModel: PageBlock
+  }
+
+  locateBlockWithRecordIdImpl(
+    recordId: string,
+    options?: Record<string, unknown>,
+  ): Promise<boolean>
+}
+
+declare global {
+  interface Window {
+    editor?: object
+    PageMain?: PageMain
+  }
+}
+
+export const getPageMain = (): PageMain | undefined =>
+  typeof window === 'undefined' ? undefined : window.PageMain
+export const isDoc = (): boolean =>
+  typeof window !== 'undefined' && window.editor !== undefined
+export const isDocx = (): boolean => getPageMain() !== undefined
+
+export const getRootBlock = (): PageBlock | null =>
+  getPageMain()?.blockManager.rootBlockModel ?? null
+
+export const locateBlockWithRecordId = async (
+  recordId: string,
+): Promise<boolean> => {
+  try {
+    return (await getPageMain()?.locateBlockWithRecordIdImpl(recordId)) ?? false
+  } catch (error) {
+    console.error(error)
+  }
+
+  return false
 }
 
 export interface DividerBlock extends Block {

@@ -1,5 +1,5 @@
 import type * as mdast from 'mdast'
-import type { BlockType, CellData } from './lark'
+import type { CellData } from './lark'
 
 declare module 'mdast' {
   interface ListItemData {
@@ -7,7 +7,7 @@ declare module 'mdast' {
   }
 
   interface TableData {
-    type?: BlockType.TABLE | BlockType.GRID
+    type?: 'table' | 'grid'
     colWidths?: number[]
     invalid?: boolean
     cellSet?: Record<string, CellData>

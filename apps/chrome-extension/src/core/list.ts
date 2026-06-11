@@ -1,18 +1,17 @@
 import type * as mdast from 'mdast'
-import { BlockType } from './lark'
 
-const listItemType = (
-  listItem: mdast.ListItem,
-): BlockType.TODO | BlockType.ORDERED | BlockType.BULLET => {
+type ListItemKind = 'todo' | 'ordered' | 'bullet'
+
+const getListItemKind = (listItem: mdast.ListItem): ListItemKind => {
   if (typeof listItem.checked === 'boolean') {
-    return BlockType.TODO
+    return 'todo'
   }
 
   if (typeof listItem.data?.seq === 'number' || listItem.data?.seq === 'auto') {
-    return BlockType.ORDERED
+    return 'ordered'
   }
 
-  return BlockType.BULLET
+  return 'bullet'
 }
 
 const canMergeOrderedListItems = (
@@ -35,20 +34,18 @@ const canMergeListItems = (
   current: mdast.ListItem,
   next: mdast.ListItem,
 ): boolean => {
-  const type = listItemType(current)
+  const kind = getListItemKind(current)
 
-  if (type !== listItemType(next)) {
+  if (kind !== getListItemKind(next)) {
     return false
   }
 
-  return type === BlockType.ORDERED
-    ? canMergeOrderedListItems(current, next)
-    : true
+  return kind === 'ordered' ? canMergeOrderedListItems(current, next) : true
 }
 
 const createList = (children: mdast.ListItem[]): mdast.List => {
   const first = children[0]
-  const ordered = listItemType(first) === BlockType.ORDERED
+  const ordered = getListItemKind(first) === 'ordered'
   const start = ordered
     ? typeof first.data?.seq === 'number'
       ? first.data.seq

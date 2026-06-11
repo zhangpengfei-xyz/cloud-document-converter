@@ -1,7 +1,11 @@
-import type * as mdast from 'mdast'
-import { stringifyMarkdown } from './markdown'
-import { PageMain, isDoc, isDocx } from './runtime'
-import { BlockType, type Blocks, type PageBlock } from './lark'
+import {
+  BlockType,
+  getRootBlock,
+  isDoc,
+  isDocx,
+  type Blocks,
+  type PageBlock,
+} from './lark'
 import { Transformer, type TransformResult } from './transformer'
 
 export { BlockType } from './lark'
@@ -32,24 +36,6 @@ const isBlockReady = (block: Blocks): boolean => {
 }
 
 export class Docx {
-  static stringify(root: mdast.Root): string {
-    return stringifyMarkdown(root)
-  }
-
-  static async locateBlockWithRecordId(recordId: string): Promise<boolean> {
-    try {
-      if (!PageMain) {
-        return false
-      }
-
-      return await PageMain.locateBlockWithRecordIdImpl(recordId)
-    } catch (error) {
-      console.error(error)
-    }
-
-    return false
-  }
-
   get isDocx(): boolean {
     return isDocx()
   }
@@ -59,11 +45,7 @@ export class Docx {
   }
 
   get rootBlock(): PageBlock | null {
-    if (!PageMain) {
-      return null
-    }
-
-    return PageMain.blockManager.rootBlockModel
+    return getRootBlock()
   }
 
   isReady(): boolean {

@@ -1,6 +1,6 @@
 # Feishu Doc2Md 架构设计文档
 
-最后更新：2026-06-11
+最后更新：2026-06-12
 
 ## 1. 概览
 
@@ -184,23 +184,25 @@ sequenceDiagram
 
 当前导出内容包括：
 
-- runtime helpers。
+- Lark block 类型和页面运行时 helpers。
 - `Docx` 门面类和 `docx` 单例。
+- Markdown 标准化与序列化 helpers。
 - mention 后处理。
 - table 转 HTML 后处理。
 - mdast/hast 类型。
 
-### 7.1 运行时适配
+### 7.1 Lark 页面模型与运行时适配
 
-源码：`apps/chrome-extension/src/core/runtime.ts`
+源码：`apps/chrome-extension/src/core/lark.ts`
 
-运行时适配层只暴露页面全局对象的最小 typed view：
+`lark.ts` 维护转换器当前需要的 Feishu/Lark Docx block 子集，并同时暴露页面全局对象的最小 typed view。把这两部分放在同一模块，是因为 `window.PageMain` 暴露的是 Lark 页面内的 root block tree 和 block 定位能力，本质上属于 Lark 页面模型边界。
 
-- `PageMain`：可选的 `window.PageMain` 引用。
+- `PageMain`：`window.PageMain` 的类型定义。
+- `getPageMain()`：读取当前页面上的 `window.PageMain`。
 - `isDocx()`：`window.PageMain` 存在时认为是新版 Docx 页面。
 - `isDoc()`：`window.editor` 存在时认为是旧版 Doc 页面。
-- `PageMain.blockManager.rootBlockModel`：Docx 根 block tree。
-- `PageMain.locateBlockWithRecordIdImpl(recordId)`：页面提供的 block 定位能力，mention 解析会用到。
+- `getRootBlock()`：读取 `PageMain.blockManager.rootBlockModel`。
+- `locateBlockWithRecordId(recordId)`：委托页面提供的 block 定位能力，mention 解析会用到，并保护异常。
 
 ### 7.2 Docx 门面
 
@@ -213,8 +215,6 @@ sequenceDiagram
 - `rootBlock`：读取 `PageMain` 中的 root block。
 - `isReady()`：递归检查 block 是否仍为 `pending`，以及 synced reference 是否加载完成。
 - `intoMarkdownAST()`：创建 `Transformer`，把 root block 转为 mdast。
-- `Docx.stringify(root)`：通过 `markdown.ts` 标准化并序列化 Markdown。
-- `Docx.locateBlockWithRecordId(recordId)`：委托页面 block locator，并保护异常。
 
 当 root block 不存在时，转换会返回空 mdast root。
 
@@ -224,8 +224,9 @@ sequenceDiagram
 
 该文件维护转换器当前需要的 Feishu/Lark Docx block 子集：
 
-- 通用 block 字段：`id`、`type`、`snapshot`、`zoneState`、`children`、可选 `record`。
+- 通用 block 字段：`type`、`snapshot`、`zoneState`、`children`、可选 `id` 和 `record`。
 - 行内文本 operation 和 attributes。
+- 页面运行时对象：`PageMain`、`getPageMain()`、`getRootBlock()`、`locateBlockWithRecordId()`。
 - 结构块：page、heading、text、divider、code、quote、callout、list、todo、table、grid。
 - 媒体和嵌入块：image、iframe、ISV、whiteboard、diagram、view、file。
 - 同步块：`SYNCED_SOURCE`、`SYNCED_REFERENCE`。
@@ -295,7 +296,6 @@ root、blockquote、list item 的 children 会过滤成 mdast 允许的内容。
 - `inlineCode` -> `inlineCode`。
 - `equation` -> `inlineMath`。
 - `underline` -> raw HTML `<u>`。
-- `textHighlight` / `textHighlightBackground` -> raw HTML `<span style="...">`。
 - `inline-component` mention doc -> 链接到引用文档。
 - `inline-component` user -> 临时 `inlineCode` 占位节点，携带 `mentionUserId`。
 
@@ -314,14 +314,16 @@ Transformer 初始输出 list item，`mergeListItems()` 再把相邻且兼容的
 - Ordered item 在序号相邻或使用 auto 编号时合并。
 - 数字序号会写入 Markdown list 的 `start`。
 
+该模块只处理 mdast list item 结构，不依赖 Lark block 类型。
+
 ### 7.7 嵌入内容
 
 源码：`apps/chrome-extension/src/core/embeds.ts`
 
 嵌入辅助函数包括：
 
+- `imageToMarkdownImage()`：从图片 token 和 caption 生成 mdast image。
 - `iframeToHtml()`：URL 存在时生成带 sandbox 的 `<iframe>` HTML；缺省高度为 `400`。
-- `evaluateAlt()`：从图片 caption 中提取 alt 文本。
 - `generateMermaidTimeline()`：把支持的 ISV timeline items 转为 Mermaid timeline 语法。
 
 图片 URL 当前直接使用页面提供的 image token。
@@ -334,7 +336,7 @@ Transformer 初始输出 list item，`mergeListItems()` 再把相邻且兼容的
 
 1. 行内转换生成带 `mentionUserId` 的 `inlineCode` 占位节点。
 2. Transformer 记录该 mention 所属的 parent block record ID。
-3. `transformMentionUsers()` 调用 `Docx.locateBlockWithRecordId()` 让页面定位到对应 block。
+3. `transformMentionUsers()` 调用 `locateBlockWithRecordId()` 让页面定位到对应 block。
 4. 在页面中查找 token 匹配的 `a[data-token]` 元素。
 5. 找到后把占位节点值改为 `@${innerText}`。
 
@@ -362,6 +364,8 @@ Transformer 初始输出 list item，`mergeListItems()` 再把相邻且兼容的
 6. 使用 `hast-util-to-html` 序列化。
 7. 用 raw HTML node 替换父节点中的原始 mdast table。
 
+该模块只消费 Transformer 写入 mdast table `data` 的表格元数据，不直接依赖 Lark block 类型。
+
 ### 7.10 Markdown 标准化与序列化
 
 源码：`apps/chrome-extension/src/core/markdown.ts`
@@ -381,7 +385,15 @@ Markdown 标准化与序列化使用：
 
 `fromMarkdown()` 配置了对应的 micromark 和 mdast 扩展，避免标准化过程丢失删除线、任务列表和数学公式结构。
 
-`Docx.stringify()` 会在最终输出 Markdown 前调用 `normalizeMarkdown()`，并通过 `console.log` 分别记录原始 mdast root 字符串和标准化后的 mdast root 字符串，方便后续比较结构差异。当前项目没有动态序列化选项，`toMarkdown()` 使用固定配置常量。
+`stringifyMarkdown()` 会在最终输出 Markdown 前调用 `normalizeMarkdown()`，并通过 `console.error` 分别记录原始 mdast root 字符串和标准化后的 mdast root 字符串，方便后续比较结构差异。当前项目没有动态序列化选项，`toMarkdown()` 使用固定配置常量。
+
+该模块也集中维护 mdast 内容类型谓词，例如 root、blockquote/list item、phrasing content 和 table cell 的类型收窄，供 Transformer 在构造 AST 时过滤合法 child。
+
+### 7.11 内部通用工具
+
+源码：`apps/chrome-extension/src/core/utils.ts`
+
+`utils.ts` 只放跨多个 core 模块复用、且不属于 Lark、Markdown、table、inline 等领域边界的低层 helper。当前只有 `trimTrailingLineBreak()`，供行内公式、代码块和图片 caption 处理复用。
 
 ## 8. 预览流程
 

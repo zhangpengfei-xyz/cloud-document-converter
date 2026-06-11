@@ -2,7 +2,6 @@ import { toHast } from 'mdast-util-to-hast'
 import { toHtml } from 'hast-util-to-html'
 import type * as hast from 'hast'
 import type * as mdast from 'mdast'
-import { BlockType } from './lark'
 import type { TableWithParent } from './transformer'
 
 /**
@@ -88,7 +87,7 @@ const resolveColumnWidth = (
   width: number,
   totalWidth: number,
 ): string =>
-  tableType === BlockType.GRID
+  tableType === 'grid'
     ? `${width.toFixed(2)}%`
     : `${((width / totalWidth) * 100).toFixed(2)}%`
 

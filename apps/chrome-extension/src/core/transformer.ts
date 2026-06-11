@@ -8,7 +8,7 @@ import {
   isPhrasingContent,
   isRootContent,
   isTableCell,
-} from './markdown-ast'
+} from './markdown'
 import {
   BlockType,
   ISVBlockTypeId,
@@ -26,12 +26,14 @@ import {
   type TextBlock,
   type TodoBlock,
 } from './lark'
-import { generateMermaidTimeline, iframeToHtml } from './embeds'
 import {
-  transformOperationsToPhrasingContents,
-  trimTrailingLineBreak,
-} from './inline'
+  generateMermaidTimeline,
+  iframeToHtml,
+  imageToMarkdownImage,
+} from './embeds'
+import { transformOperationsToPhrasingContents } from './inline'
 import { mergeListItems } from './list'
+import { trimTrailingLineBreak } from './utils'
 
 export interface TableWithParent {
   inner: mdast.Table
@@ -44,80 +46,215 @@ export interface TransformResult {
   mentionUsers: mdast.InlineCode[]
 }
 
+const isTextContainerBlock = (
+  block: Blocks,
+): block is HeadingBlock | TextBlock =>
+  block.type === BlockType.HEADING1 ||
+  block.type === BlockType.HEADING2 ||
+  block.type === BlockType.HEADING3 ||
+  block.type === BlockType.HEADING4 ||
+  block.type === BlockType.HEADING5 ||
+  block.type === BlockType.HEADING6 ||
+  block.type === BlockType.HEADING7 ||
+  block.type === BlockType.HEADING8 ||
+  block.type === BlockType.HEADING9 ||
+  block.type === BlockType.TEXT
+
+const flattenChildren = (children: Blocks[]): Blocks[] =>
+  children.flatMap(child => {
+    if (child.type === BlockType.GRID) {
+      return flattenChildren(child.children.flatMap(column => column.children))
+    }
+
+    if (isTextContainerBlock(child)) {
+      return [child, ...flattenChildren(child.children)]
+    }
+
+    if (child.type === BlockType.SYNCED_SOURCE) {
+      return flattenChildren(child.children)
+    }
+
+    if (child.type === BlockType.SYNCED_REFERENCE) {
+      return flattenChildren(
+        child.innerBlockManager?.rootBlockModel?.children ?? child.children,
+      )
+    }
+
+    return [child]
+  })
+
+const createParagraph = (
+  children: mdast.PhrasingContent[],
+): mdast.Paragraph | null =>
+  children.length > 0
+    ? {
+        type: 'paragraph',
+        children,
+      }
+    : null
+
+const normalizeImage = (
+  image: mdast.Image,
+  parent: mdast.Parent | null,
+): mdast.Image | mdast.Paragraph =>
+  parent?.type === 'tableCell'
+    ? image
+    : { type: 'paragraph', children: [image] }
+
+const transformImage = (
+  block: ImageBlock,
+  parent: mdast.Parent | null,
+): mdast.Image | mdast.Paragraph =>
+  normalizeImage(imageToMarkdownImage(block), parent)
+
+const createListItem = (
+  block: BulletBlock | OrderedBlock | TodoBlock,
+  orderedSequence?: number | 'auto',
+): mdast.ListItem => {
+  const listItem: mdast.ListItem = {
+    type: 'listItem',
+    children: [],
+  }
+
+  if (block.type === BlockType.TODO) {
+    listItem.checked = Boolean(block.snapshot.done)
+  }
+
+  if (block.type === BlockType.ORDERED) {
+    listItem.data = {
+      seq: orderedSequence ?? 'auto',
+    }
+  }
+
+  return listItem
+}
+
+const createTable = (block: TableBlock | Grid): mdast.Table => ({
+  type: 'table',
+  children: [],
+  data: {
+    type: block.type,
+    ...(block.type === BlockType.TABLE
+      ? { cellSet: block.snapshot.cell_set }
+      : {}),
+  },
+})
+
+const resolveTableColumnWidths = (
+  block: TableBlock | Grid,
+  cells: mdast.TableCell[],
+): number[] | undefined => {
+  if (block.type === BlockType.TABLE) {
+    return block.snapshot.columns_id.map(
+      id => block.snapshot.column_set[id].column_width,
+    )
+  }
+
+  const widths = cells.map(cell => cell.data?.width)
+
+  return widths.every((width): width is number => typeof width === 'number')
+    ? widths
+    : undefined
+}
+
+const createTableRows = (
+  block: TableBlock | Grid,
+  cells: mdast.TableCell[],
+): mdast.TableRow[] => {
+  const rows =
+    block.type === BlockType.GRID
+      ? [cells]
+      : chunk(cells, block.snapshot.columns_id.length)
+
+  return rows.map(children => ({
+    type: 'tableRow',
+    children,
+  }))
+}
+
+const updateTableData = (
+  table: mdast.Table,
+  block: TableBlock | Grid,
+  cells: mdast.TableCell[],
+): void => {
+  const colWidths = resolveTableColumnWidths(block, cells)
+
+  table.data = {
+    ...table.data,
+    type: block.type,
+    ...(colWidths ? { colWidths } : {}),
+    invalid: cells.some(cell => cell.data?.invalidChildren),
+  }
+}
+
+const createTableCell = (
+  block: TableCellBlock | GridColumn,
+  parent: mdast.Parent | null,
+): mdast.TableCell => {
+  const table = parent?.type === 'table' ? (parent as mdast.Table) : null
+
+  return {
+    type: 'tableCell',
+    children: [],
+    ...(block.type === BlockType.GRID_COLUMN
+      ? { data: { width: block.snapshot.width_ratio } }
+      : {
+          data: {
+            ...toCamelCaseKeys(
+              table?.data?.cellSet?.[block.cellId]?.merge_info,
+            ),
+          },
+        }),
+  }
+}
+
+const flattenTableCellNode = (
+  node: mdast.Nodes,
+  next?: mdast.Nodes,
+): mdast.Nodes[] => [
+  ...(node.type === 'paragraph' ? node.children : [node]),
+  ...(next && node.type === 'paragraph' && next.type === 'paragraph'
+    ? [{ type: 'html', value: '<br />' } satisfies mdast.Html]
+    : []),
+]
+
+const normalizeInvalidTableCellNode = (node: mdast.Nodes): mdast.Nodes =>
+  node.type === 'image'
+    ? {
+        type: 'paragraph',
+        children: [node],
+      }
+    : node
+
+const normalizeTableCellChildren = (
+  nodes: mdast.Nodes[],
+  cell: mdast.TableCell,
+): mdast.PhrasingContent[] => {
+  const mergedNodes = mergeListItems(nodes)
+  const normalizedNodes = mergedNodes.flatMap((node, index, nodes) =>
+    flattenTableCellNode(node, nodes.at(index + 1)),
+  )
+
+  if (normalizedNodes.every(isPhrasingContent)) {
+    return normalizedNodes
+  }
+
+  cell.data = {
+    ...cell.data,
+    invalidChildren: mergedNodes.map(node =>
+      normalizeInvalidTableCellNode(node),
+    ),
+  }
+
+  return normalizedNodes.filter(isPhrasingContent)
+}
+
 export class Transformer {
   private parent: mdast.Parent | null = null
   private mentionUsers: mdast.InlineCode[] = []
   private tableWithParents: TableWithParent[] = []
   private sequences: (string | undefined)[] = []
   private orderedListSequences = new WeakMap<mdast.Parent, number>()
-
-  private transformImage(block: ImageBlock): mdast.Image | mdast.Paragraph {
-    return this.normalizeImage(this.createImage(block))
-  }
-
-  private createImage(block: ImageBlock): mdast.Image {
-    const { caption, token } = block.snapshot.image
-    const alt =
-      trimTrailingLineBreak(
-        caption?.text.initialAttributedTexts.text?.[0] ?? '',
-      ) || token
-
-    return {
-      type: 'image',
-      url: `https://internal-api-drive-stream.larkoffice.com/space/api/box/stream/download/preview/${encodeURIComponent(token)}?preview_type=16`,
-      alt,
-      title: null,
-    }
-  }
-
-  private normalizeImage(image: mdast.Image): mdast.Image | mdast.Paragraph {
-    return this.parent?.type === 'tableCell'
-      ? image
-      : { type: 'paragraph', children: [image] }
-  }
-
-  private isTextContainerBlock(
-    block: Blocks,
-  ): block is HeadingBlock | TextBlock {
-    return (
-      block.type === BlockType.HEADING1 ||
-      block.type === BlockType.HEADING2 ||
-      block.type === BlockType.HEADING3 ||
-      block.type === BlockType.HEADING4 ||
-      block.type === BlockType.HEADING5 ||
-      block.type === BlockType.HEADING6 ||
-      block.type === BlockType.HEADING7 ||
-      block.type === BlockType.HEADING8 ||
-      block.type === BlockType.HEADING9 ||
-      block.type === BlockType.TEXT
-    )
-  }
-
-  private flattenChildren(children: Blocks[]): Blocks[] {
-    return children.flatMap(child => {
-      if (child.type === BlockType.GRID) {
-        return this.flattenChildren(
-          child.children.flatMap(column => column.children),
-        )
-      }
-
-      if (this.isTextContainerBlock(child)) {
-        return [child, ...this.flattenChildren(child.children)]
-      }
-
-      if (child.type === BlockType.SYNCED_SOURCE) {
-        return this.flattenChildren(child.children)
-      }
-
-      if (child.type === BlockType.SYNCED_REFERENCE) {
-        return this.flattenChildren(
-          child.innerBlockManager?.rootBlockModel?.children ?? child.children,
-        )
-      }
-
-      return [child]
-    })
-  }
 
   private transformInlineContents(block: Block): mdast.PhrasingContent[] {
     const { contents, mentionUsers } = transformOperationsToPhrasingContents(
@@ -133,38 +270,6 @@ export class Transformer {
     this.mentionUsers = this.mentionUsers.concat(mentionUsers)
 
     return contents
-  }
-
-  private createParagraph(
-    children: mdast.PhrasingContent[],
-  ): mdast.Paragraph | null {
-    return children.length > 0
-      ? {
-          type: 'paragraph',
-          children,
-        }
-      : null
-  }
-
-  private createListItem(
-    block: BulletBlock | OrderedBlock | TodoBlock,
-  ): mdast.ListItem {
-    const listItem: mdast.ListItem = {
-      type: 'listItem',
-      children: [],
-    }
-
-    if (block.type === BlockType.TODO) {
-      listItem.checked = Boolean(block.snapshot.done)
-    }
-
-    if (block.type === BlockType.ORDERED) {
-      listItem.data = {
-        seq: this.resolveOrderedListSequence(block),
-      }
-    }
-
-    return listItem
   }
 
   private resolveOrderedListSequence(block: OrderedBlock): number | 'auto' {
@@ -242,73 +347,13 @@ export class Transformer {
     }
   }
 
-  private createTable(block: TableBlock | Grid): mdast.Table {
-    return {
-      type: 'table',
-      children: [],
-      data: {
-        type: block.type,
-        ...(block.type === BlockType.TABLE
-          ? { cellSet: block.snapshot.cell_set }
-          : {}),
-      },
-    }
-  }
-
-  private resolveTableColumnWidths(
-    block: TableBlock | Grid,
-    cells: mdast.TableCell[],
-  ): number[] | undefined {
-    if (block.type === BlockType.TABLE) {
-      return block.snapshot.columns_id.map(
-        id => block.snapshot.column_set[id].column_width,
-      )
-    }
-
-    const widths = cells.map(cell => cell.data?.width)
-
-    return widths.every((width): width is number => typeof width === 'number')
-      ? widths
-      : undefined
-  }
-
-  private createTableRows(
-    block: TableBlock | Grid,
-    cells: mdast.TableCell[],
-  ): mdast.TableRow[] {
-    const rows =
-      block.type === BlockType.GRID
-        ? [cells]
-        : chunk(cells, block.snapshot.columns_id.length)
-
-    return rows.map(children => ({
-      type: 'tableRow',
-      children,
-    }))
-  }
-
-  private updateTableData(
-    table: mdast.Table,
-    block: TableBlock | Grid,
-    cells: mdast.TableCell[],
-  ): void {
-    const colWidths = this.resolveTableColumnWidths(block, cells)
-
-    table.data = {
-      ...table.data,
-      type: block.type,
-      ...(colWidths ? { colWidths } : {}),
-      invalid: cells.some(cell => cell.data?.invalidChildren),
-    }
-  }
-
   private transformTable(block: TableBlock | Grid): mdast.Table {
-    const table = this.createTable(block)
+    const table = createTable(block)
 
     this.transformParentBlock(block, table, nodes => {
       const cells = nodes.filter(isTableCell)
-      this.updateTableData(table, block, cells)
-      return this.createTableRows(block, cells)
+      updateTableData(table, block, cells)
+      return createTableRows(block, cells)
     })
 
     this.tableWithParents.push({
@@ -319,72 +364,11 @@ export class Transformer {
     return table
   }
 
-  private createTableCell(block: TableCellBlock | GridColumn): mdast.TableCell {
-    return {
-      type: 'tableCell',
-      children: [],
-      ...(block.type === BlockType.GRID_COLUMN
-        ? { data: { width: block.snapshot.width_ratio } }
-        : {
-            data: {
-              ...toCamelCaseKeys(
-                (this.parent as mdast.Table).data?.cellSet?.[block.cellId]
-                  ?.merge_info,
-              ),
-            },
-          }),
-    }
-  }
-
-  private flattenTableCellNode(
-    node: mdast.Nodes,
-    next?: mdast.Nodes,
-  ): mdast.Nodes[] {
-    return [
-      ...(node.type === 'paragraph' ? node.children : [node]),
-      ...(next && node.type === 'paragraph' && next.type === 'paragraph'
-        ? [{ type: 'html', value: '<br />' } satisfies mdast.Html]
-        : []),
-    ]
-  }
-
-  private normalizeInvalidTableCellNode(node: mdast.Nodes): mdast.Nodes {
-    return node.type === 'image'
-      ? {
-          type: 'paragraph',
-          children: [node],
-        }
-      : node
-  }
-
-  private normalizeTableCellChildren(
-    nodes: mdast.Nodes[],
-    cell: mdast.TableCell,
-  ): mdast.PhrasingContent[] {
-    const mergedNodes = mergeListItems(nodes)
-    const normalizedNodes = mergedNodes.flatMap((node, index, nodes) =>
-      this.flattenTableCellNode(node, nodes.at(index + 1)),
-    )
-
-    if (normalizedNodes.every(isPhrasingContent)) {
-      return normalizedNodes
-    }
-
-    cell.data = {
-      ...cell.data,
-      invalidChildren: mergedNodes.map(node =>
-        this.normalizeInvalidTableCellNode(node),
-      ),
-    }
-
-    return normalizedNodes.filter(isPhrasingContent)
-  }
-
   private transformTableCell(block: TableCellBlock | GridColumn) {
-    const cell = this.createTableCell(block)
+    const cell = createTableCell(block, this.parent)
 
     return this.transformParentBlock(block, cell, nodes =>
-      this.normalizeTableCellChildren(nodes, cell),
+      normalizeTableCellChildren(nodes, cell),
     )
   }
 
@@ -398,7 +382,7 @@ export class Transformer {
 
     try {
       currentParent.children = transformChildren(
-        this.flattenChildren(block.children)
+        flattenChildren(block.children)
           .map(this.transformBlock)
           .filter(isNotNil),
       )
@@ -460,12 +444,15 @@ export class Transformer {
       case BlockType.BULLET:
       case BlockType.ORDERED:
       case BlockType.TODO: {
-        const paragraph = this.createParagraph(
-          this.transformInlineContents(block),
-        )
+        const paragraph = createParagraph(this.transformInlineContents(block))
+        const orderedSequence =
+          block.type === BlockType.ORDERED
+            ? this.resolveOrderedListSequence(block)
+            : undefined
+
         return this.transformParentBlock(
           block,
-          this.createListItem(block),
+          createListItem(block, orderedSequence),
           nodes => [
             ...(paragraph ? [paragraph] : []),
             ...mergeListItems(nodes).filter(isListItemContent),
@@ -476,22 +463,10 @@ export class Transformer {
       case BlockType.HEADING7:
       case BlockType.HEADING8:
       case BlockType.HEADING9: {
-        return this.createParagraph(this.transformInlineContents(block))
+        return createParagraph(this.transformInlineContents(block))
       }
       case BlockType.IMAGE: {
-        return this.transformImage(block)
-      }
-      case BlockType.BITABLE:
-      case BlockType.CHAT_CARD:
-      case BlockType.WHITEBOARD:
-      case BlockType.DIAGRAM:
-      case BlockType.FALLBACK:
-      case BlockType.VIEW:
-      case BlockType.FILE:
-      case BlockType.MINDNOTE:
-      case BlockType.QUOTE:
-      case BlockType.SHEET: {
-        return null
+        return transformImage(block, this.parent)
       }
       case BlockType.TABLE:
       case BlockType.GRID: {
@@ -521,6 +496,18 @@ export class Transformer {
           default:
             return null
         }
+      }
+      case BlockType.BITABLE:
+      case BlockType.CHAT_CARD:
+      case BlockType.WHITEBOARD:
+      case BlockType.DIAGRAM:
+      case BlockType.FALLBACK:
+      case BlockType.VIEW:
+      case BlockType.FILE:
+      case BlockType.MINDNOTE:
+      case BlockType.QUOTE:
+      case BlockType.SHEET: {
+        return null
       }
       default:
         return null

@@ -1,5 +1,5 @@
 import type * as mdast from 'mdast'
-import { Docx } from './docx'
+import { locateBlockWithRecordId } from './lark'
 
 const getMentionUserElement = (userId: string): HTMLElement | null =>
   Array.from(document.querySelectorAll<HTMLElement>('a[data-token]')).find(
@@ -17,7 +17,7 @@ export const transformMentionUsers = async (
       continue
     }
 
-    const located = await Docx.locateBlockWithRecordId(parentBlockRecordId)
+    const located = await locateBlockWithRecordId(parentBlockRecordId)
     if (!located) {
       continue
     }

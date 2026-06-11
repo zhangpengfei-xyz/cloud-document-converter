@@ -1,8 +1,24 @@
 import type * as mdast from 'mdast'
 import { escape } from 'es-toolkit/string'
-import type { IframeBlock, Timeline } from './lark'
+import type { IframeBlock, ImageBlock, Timeline } from './lark'
+import { trimTrailingLineBreak } from './utils'
 
 const DEFAULT_IFRAME_HEIGHT = 400
+
+export const imageToMarkdownImage = (block: ImageBlock): mdast.Image => {
+  const { caption, token } = block.snapshot.image
+  const alt =
+    trimTrailingLineBreak(
+      caption?.text.initialAttributedTexts.text?.[0] ?? '',
+    ) || token
+
+  return {
+    type: 'image',
+    url: `https://internal-api-drive-stream.larkoffice.com/space/api/box/stream/download/preview/${encodeURIComponent(token)}?preview_type=16`,
+    alt,
+    title: null,
+  }
+}
 
 export const iframeToHtml = (iframe: IframeBlock): mdast.Html | null => {
   const { height = DEFAULT_IFRAME_HEIGHT, component = {} } =

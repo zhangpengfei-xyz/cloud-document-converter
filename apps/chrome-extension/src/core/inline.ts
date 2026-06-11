@@ -1,9 +1,7 @@
 import type * as mdast from 'mdast'
 import { isNotNil } from 'es-toolkit/predicate'
 import type { Attributes, Operation } from './lark'
-
-export const trimTrailingLineBreak = (input: string): string =>
-  input.length > 0 && input.endsWith('\n') ? input.slice(0, -1) : input
+import { trimTrailingLineBreak } from './utils'
 
 type InlineComponent =
   | {
@@ -48,11 +46,7 @@ const hasAttribute = (
 const isRenderableOperation = (operation: Operation): boolean => {
   // Feishu stores the block-ending newline as fixEnter, but in-paragraph line
   // breaks can be standalone "\n" operations that should remain in Markdown.
-  if (isNotNil(operation.attributes?.fixEnter)) {
-    return false
-  }
-
-  return true
+  return !isNotNil(operation.attributes?.fixEnter)
 }
 
 const parseInlineComponent = (value?: string): InlineComponent | null => {

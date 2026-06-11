@@ -1,6 +1,6 @@
 import {
-  Docx,
   docx,
+  stringifyMarkdown,
   transformMentionUsers,
   transformTablesToHtml,
 } from '../core'
@@ -48,7 +48,7 @@ const main = async () => {
   await transformMentionUsers(mentionUsers)
   transformTablesToHtml(tableWithParents)
 
-  const markdown = Docx.stringify(root)
+  const markdown = stringifyMarkdown(root)
 
   const previewWindow = window.open('', '_blank', 'width=800,height=600')
 
