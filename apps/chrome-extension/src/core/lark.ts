@@ -51,14 +51,10 @@ export interface Attributes {
 
   inlineCode?: string
   equation?: string
-  textHighlight?: string
-  textHighlightBackground?: string
   'inline-component'?: string
 
   link?: string
   mentionUserId?: string
-
-  [attrName: string]: unknown
 }
 
 export interface Operation {
@@ -78,7 +74,6 @@ export interface BlockSnapshot {
 }
 
 export interface Block<T extends Blocks = Blocks> {
-  id: number
   type: BlockType
   zoneState?: BlockZoneState
   record?: { id: string }
@@ -105,7 +100,6 @@ export interface HeadingBlock extends Block<TextBlock> {
     | BlockType.HEADING7
     | BlockType.HEADING8
     | BlockType.HEADING9
-  depth: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
   snapshot: {
     type:
       | BlockType.HEADING1
@@ -128,10 +122,6 @@ export interface HeadingBlock extends Block<TextBlock> {
 export interface CodeBlock extends Block<TextBlock> {
   type: BlockType.CODE
   language: string
-}
-
-export interface QuoteContainerBlock extends Block {
-  type: BlockType.QUOTE_CONTAINER
 }
 
 export interface BulletBlock extends Block {
@@ -168,10 +158,6 @@ export interface Caption {
 
 export interface ImageBlockData {
   token: string
-  width: number
-  height: number
-  mimeType: string
-  name: string
   caption?: Caption
 }
 
@@ -200,7 +186,6 @@ export interface TableBlock extends Block<TableCellBlock> {
   type: BlockType.TABLE
   snapshot: {
     type: BlockType.TABLE
-    rows_id: string[]
     columns_id: string[]
     column_set: Record<string, ColumnData>
     cell_set: Record<string, CellData>
@@ -224,41 +209,34 @@ export interface GridColumn extends Block {
   }
 }
 
-export interface Callout extends Block {
-  type: BlockType.CALLOUT
+export interface BlockquoteContainerBlock extends Block {
+  type: BlockType.QUOTE_CONTAINER | BlockType.CALLOUT
 }
 
 export interface SyncedSource extends Block {
   type: BlockType.SYNCED_SOURCE
 }
 
-export interface SyncedReferenceInnerBlockManager {
-  rootBlockModel?: PageBlock
-}
-
 export interface SyncedReference extends Block {
   type: BlockType.SYNCED_REFERENCE
   isAllDataReady: boolean
-  innerBlockManager?: SyncedReferenceInnerBlockManager
-}
-
-export interface Whiteboard extends Block {
-  type: BlockType.WHITEBOARD
-  snapshot: {
-    type: BlockType.WHITEBOARD
-    caption?: Caption
+  innerBlockManager?: {
+    rootBlockModel?: PageBlock
   }
 }
 
-export interface DiagramBlock extends Block {
-  type: BlockType.DIAGRAM
-  snapshot: {
-    type: BlockType.DIAGRAM
-  }
-}
-
-export interface View extends Block {
-  type: BlockType.VIEW
+export interface UnsupportedBlock extends Block {
+  type:
+    | BlockType.BITABLE
+    | BlockType.CHAT_CARD
+    | BlockType.DIAGRAM
+    | BlockType.FALLBACK
+    | BlockType.FILE
+    | BlockType.MINDNOTE
+    | BlockType.QUOTE
+    | BlockType.SHEET
+    | BlockType.VIEW
+    | BlockType.WHITEBOARD
 }
 
 export interface IframeBlock extends Block {
@@ -288,22 +266,7 @@ export enum ISVBlockTypeId {
   /**
    * Other ISV block (type inference)
    */
-  _Other = '',
-}
-
-export interface OtherISVBlock extends Block {
-  type: BlockType.ISV
-  snapshot: {
-    type: BlockType.ISV
-    /**
-     * ISV block type id
-     */
-    block_type_id: ISVBlockTypeId._Other
-    /**
-     * ISV block data
-     */
-    data: unknown
-  }
+  Other = '',
 }
 
 export interface TextDrawingBlock extends Block {
@@ -352,18 +315,12 @@ export interface TimelineBlock extends Block {
   }
 }
 
-export type ISVBlocks = TextDrawingBlock | TimelineBlock | OtherISVBlock
-
-export interface NotSupportedBlock extends Block {
-  type:
-    | BlockType.QUOTE
-    | BlockType.BITABLE
-    | BlockType.CHAT_CARD
-    | BlockType.FILE
-    | BlockType.MINDNOTE
-    | BlockType.SHEET
-    | BlockType.FALLBACK
-  children: []
+export interface OtherISVBlock extends Block {
+  type: BlockType.ISV
+  snapshot: {
+    type: BlockType.ISV
+    block_type_id: ISVBlockTypeId.Other
+  }
 }
 
 export type Blocks =
@@ -371,7 +328,7 @@ export type Blocks =
   | DividerBlock
   | HeadingBlock
   | CodeBlock
-  | QuoteContainerBlock
+  | BlockquoteContainerBlock
   | BulletBlock
   | OrderedBlock
   | TodoBlock
@@ -381,12 +338,10 @@ export type Blocks =
   | TableCellBlock
   | Grid
   | GridColumn
-  | Callout
   | SyncedSource
   | SyncedReference
-  | Whiteboard
-  | DiagramBlock
-  | View
+  | UnsupportedBlock
   | IframeBlock
-  | ISVBlocks
-  | NotSupportedBlock
+  | TextDrawingBlock
+  | TimelineBlock
+  | OtherISVBlock

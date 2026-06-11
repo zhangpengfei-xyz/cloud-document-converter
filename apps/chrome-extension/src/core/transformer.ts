@@ -458,10 +458,16 @@ export class Transformer {
 
         return this.normalizeImage(image)
       }
+      case BlockType.BITABLE:
+      case BlockType.CHAT_CARD:
       case BlockType.WHITEBOARD:
       case BlockType.DIAGRAM:
+      case BlockType.FALLBACK:
       case BlockType.VIEW:
-      case BlockType.FILE: {
+      case BlockType.FILE:
+      case BlockType.MINDNOTE:
+      case BlockType.QUOTE:
+      case BlockType.SHEET: {
         return null
       }
       case BlockType.TABLE:
@@ -476,23 +482,22 @@ export class Transformer {
         return iframeToHtml(block)
       }
       case BlockType.ISV: {
-        if (block.snapshot.block_type_id === ISVBlockTypeId.TextDrawing) {
-          return {
-            type: 'code',
-            lang: 'mermaid',
-            value: block.snapshot.data.data,
-          }
+        switch (block.snapshot.block_type_id) {
+          case ISVBlockTypeId.TextDrawing:
+            return {
+              type: 'code',
+              lang: 'mermaid',
+              value: block.snapshot.data.data,
+            }
+          case ISVBlockTypeId.Timeline:
+            return {
+              type: 'code',
+              lang: 'mermaid',
+              value: generateMermaidTimeline(block.snapshot.data.items),
+            }
+          default:
+            return null
         }
-
-        if (block.snapshot.block_type_id === ISVBlockTypeId.Timeline) {
-          return {
-            type: 'code',
-            lang: 'mermaid',
-            value: generateMermaidTimeline(block.snapshot.data.items),
-          }
-        }
-
-        return null
       }
       default:
         return null

@@ -1,6 +1,6 @@
 import type * as mdast from 'mdast'
 import { isNotNil } from 'es-toolkit/predicate'
-import type { Operation } from './lark'
+import type { Attributes, Operation } from './lark'
 
 export const trimTrailingLineBreak = (input: string): string =>
   input.length > 0 && input.endsWith('\n') ? input.slice(0, -1) : input
@@ -24,7 +24,12 @@ type InlineComponent =
       data: unknown
     }
 
-const markAttributeNames = ['italic', 'bold', 'strikethrough', 'link'] as const
+const markAttributeNames = [
+  'italic',
+  'bold',
+  'strikethrough',
+  'link',
+] as const satisfies readonly (keyof Attributes)[]
 type MarkAttributeName = (typeof markAttributeNames)[number]
 type MarkNodeType = 'emphasis' | 'strong' | 'delete' | 'link'
 
@@ -34,12 +39,12 @@ const literalAttributeNames = [
   'mentionUserId',
   'underline',
   'inline-component',
-] as const
+] as const satisfies readonly (keyof Attributes)[]
 
 const renderableAttributeNames = [
   ...markAttributeNames,
   ...literalAttributeNames,
-] as const
+] as const satisfies readonly (keyof Attributes)[]
 
 const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
   italic: 'emphasis',
@@ -48,16 +53,15 @@ const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
   link: 'link',
 }
 
-const isMarkAttributeName = (attr: string): attr is MarkAttributeName =>
-  (markAttributeNames as readonly string[]).includes(attr)
-
-const isRenderableAttributeName = (
-  attr: string,
-): attr is (typeof renderableAttributeNames)[number] =>
-  (renderableAttributeNames as readonly string[]).includes(attr)
+const hasAttribute = (
+  attributes: Attributes | undefined,
+  name: keyof Attributes,
+): boolean => attributes !== undefined && Object.hasOwn(attributes, name)
 
 const hasRenderableAttributes = (operation: Operation): boolean =>
-  Object.keys(operation.attributes ?? {}).some(isRenderableAttributeName)
+  renderableAttributeNames.some(attr =>
+    hasAttribute(operation.attributes, attr),
+  )
 
 const isRenderableOperation = (operation: Operation): boolean => {
   if (isNotNil(operation.attributes?.fixEnter)) {
@@ -110,8 +114,8 @@ const normalizeInlineComponentOperation = (op: Operation): Operation => {
 }
 
 const getOperationMarks = (op: Operation): MarkNodeType[] =>
-  Object.keys(op.attributes ?? {})
-    .filter(isMarkAttributeName)
+  markAttributeNames
+    .filter(attr => hasAttribute(op.attributes, attr))
     .map(attr => markAttributeToNodeType[attr])
 
 const markSpanLength = (
