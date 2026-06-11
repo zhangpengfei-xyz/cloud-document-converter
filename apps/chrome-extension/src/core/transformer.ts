@@ -328,13 +328,22 @@ export class Transformer {
     ]
   }
 
+  private normalizeInvalidTableCellNode(node: mdast.Nodes): mdast.Nodes {
+    return node.type === 'image'
+      ? {
+          type: 'paragraph',
+          children: [node],
+        }
+      : node
+  }
+
   private normalizeTableCellChildren(
     nodes: mdast.Nodes[],
     cell: mdast.TableCell,
   ): mdast.PhrasingContent[] {
-    const normalizedNodes = mergeListItems(nodes).flatMap(
-      (node, index, nodes) =>
-        this.flattenTableCellNode(node, nodes.at(index + 1)),
+    const mergedNodes = mergeListItems(nodes)
+    const normalizedNodes = mergedNodes.flatMap((node, index, nodes) =>
+      this.flattenTableCellNode(node, nodes.at(index + 1)),
     )
 
     if (normalizedNodes.every(isPhrasingContent)) {
@@ -343,7 +352,9 @@ export class Transformer {
 
     cell.data = {
       ...cell.data,
-      invalidChildren: normalizedNodes,
+      invalidChildren: mergedNodes.map(node =>
+        this.normalizeInvalidTableCellNode(node),
+      ),
     }
 
     return normalizedNodes.filter(isPhrasingContent)

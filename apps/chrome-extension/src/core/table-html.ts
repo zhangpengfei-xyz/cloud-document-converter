@@ -75,6 +75,79 @@ const replaceInvalidTableChildren = (table: mdast.Table): mdast.Table => {
   } as mdast.Table
 }
 
+const appendStyle = (
+  properties: hast.Properties,
+  style: string,
+): hast.Properties => ({
+  ...properties,
+  style: [properties['style'], style].filter(Boolean).join(' '),
+})
+
+const resolveColumnWidth = (
+  tableType: mdast.TableData['type'],
+  width: number,
+  totalWidth: number,
+): string =>
+  tableType === BlockType.GRID
+    ? `${width.toFixed(2)}%`
+    : `${((width / totalWidth) * 100).toFixed(2)}%`
+
+const createTableColGroup = (inner: mdast.Table): hast.Element => {
+  const colWidths = inner.data?.colWidths ?? []
+  const totalWidth = colWidths.reduce((total, width) => total + width, 0)
+
+  return {
+    type: 'element',
+    tagName: 'colgroup',
+    properties: {},
+    children:
+      totalWidth > 0
+        ? colWidths.map(width => ({
+            type: 'element',
+            tagName: 'col',
+            properties: {
+              style: `width: ${resolveColumnWidth(
+                inner.data?.type,
+                width,
+                totalWidth,
+              )};`,
+            },
+            children: [],
+          }))
+        : [],
+  }
+}
+
+const leftAlignTableHeaders = (node: hast.Nodes): void => {
+  if (node.type !== 'element') {
+    return
+  }
+
+  if (node.tagName === 'th') {
+    node.properties = appendStyle(node.properties, 'text-align: left;')
+  }
+
+  node.children.forEach(leftAlignTableHeaders)
+}
+
+const normalizeTableElement = (
+  hastTable: hast.Element,
+  inner: mdast.Table,
+): void => {
+  hastTable.properties = appendStyle(
+    hastTable.properties,
+    'width: 100%; table-layout: fixed;',
+  )
+
+  const hastColGroup = createTableColGroup(inner)
+
+  hastTable.children = ([hastColGroup] as hast.ElementContent[]).concat(
+    hastTable.children,
+  )
+
+  leftAlignTableHeaders(hastTable)
+}
+
 export const transformTablesToHtml = (tables: TableWithParent[]): void => {
   tables.forEach(table => {
     const tableIndex = table.parent?.children.findIndex(
@@ -90,27 +163,7 @@ export const transformTablesToHtml = (tables: TableWithParent[]): void => {
       })
 
       if (hastTable.type === 'element') {
-        const hastColGroup: hast.Element = {
-          type: 'element',
-          tagName: 'colgroup',
-          properties: {},
-          children:
-            inner.data?.colWidths?.map(width => ({
-              type: 'element',
-              tagName: 'col',
-              properties: {
-                width:
-                  inner.data?.type === BlockType.GRID
-                    ? `${width.toFixed(2)}%`
-                    : width,
-              },
-              children: [],
-            })) ?? [],
-        }
-
-        hastTable.children = ([hastColGroup] as hast.ElementContent[]).concat(
-          hastTable.children,
-        )
+        normalizeTableElement(hastTable, inner)
       }
 
       table.parent?.children.splice(tableIndex, 1, {
