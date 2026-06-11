@@ -23,12 +23,10 @@
     "@changesets/cli": "catalog:cli",
     "@eslint/js": "catalog:lint",
     "@types/node": "catalog:types",
-    "@types/regexp.escape": "catalog:types",
     "eslint": "catalog:lint",
     "husky": "catalog:lint",
     "lint-staged": "catalog:lint",
     "prettier": "catalog:lint",
-    "regexp.escape": "catalog:utils",
     "rolldown-vite": "catalog:build",
     "tsdown": "catalog:build",
     "turbo": "catalog:monorepo",
@@ -48,8 +46,5 @@
   "volta": {
     "node": "22.18.0",
     "pnpm": "11.5.3"
-  },
-  "dependencies": {
-    "core-js": "catalog:prod"
   }
 }

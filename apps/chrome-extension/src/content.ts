@@ -1,3 +1,5 @@
+import { Flag } from './core/message'
+
 const COMMENT_BUTTON_CLASS = '.docx-comment__first-comment-btn'
 const HELP_BLOCK_CLASS = '.help-block'
 
@@ -63,7 +65,7 @@ const initButtons = (): void => {
         `,
         action: () => {
           chrome.runtime
-            .sendMessage({ flag: 'view_docx_as_markdown' })
+            .sendMessage({ flag: Flag.ExecuteViewScript })
             .catch(console.error)
         },
       },

@@ -1,9 +1,8 @@
 import { defineConfig, type UserConfig as Options } from 'tsdown'
-import babel from '@rollup/plugin-babel'
 import { glob } from 'glob'
-import regexpEscape from 'regexp.escape'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { escapeRegExp } from 'es-toolkit/string'
 import packageJson from './package.json' with { type: 'json' }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -12,7 +11,7 @@ export default defineConfig(async cliOptions => {
   const isDev = Boolean(cliOptions.env?.['DEV'])
 
   const noExternal = Object.keys(packageJson.dependencies).map(
-    dependency => new RegExp(`^${regexpEscape(dependency)}`),
+    dependency => new RegExp(`^${escapeRegExp(dependency)}`),
   )
 
   const sharedConfig: Omit<Options, 'config' | 'filter'> = {
@@ -27,15 +26,6 @@ export default defineConfig(async cliOptions => {
     target: ['es2024'],
     noExternal,
     minify: !isDev,
-    plugins: !isDev
-      ? [
-          babel({
-            extensions: ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts', '.tsx'],
-            babelHelpers: 'runtime',
-            exclude: [/node_modules\/core-js/],
-          }),
-        ]
-      : [],
   }
 
   const createModuleScriptConfig = (

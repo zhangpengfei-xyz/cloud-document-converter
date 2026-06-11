@@ -1,6 +1,8 @@
+import type { PageBlock } from './lark'
+
 export interface PageMain {
   blockManager: {
-    rootBlockModel: import('./docx').PageBlock
+    rootBlockModel: PageBlock
   }
 
   locateBlockWithRecordIdImpl(

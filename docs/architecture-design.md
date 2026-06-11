@@ -60,7 +60,7 @@ flowchart LR
 | --- | --- | --- |
 | 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 统一脚本、依赖目录、Turborepo 任务缓存 |
 | Chrome Extension package | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
-| Core 转换模块 | `apps/chrome-extension/src/core` | 飞书运行时适配、Docx block 模型转换、Markdown 序列化、mention 解析、表格 HTML 后处理、扩展消息枚举 |
+| Core 转换模块 | `apps/chrome-extension/src/core` | 飞书运行时适配、Docx block 类型模型、Docx block → mdast 转换、Markdown 序列化、mention 解析、表格 HTML 后处理、扩展消息枚举 |
 | TS 配置 | `apps/chrome-extension/tsconfig*.json`, 根 `tsconfig.json` | 应用与根工具脚本的 TypeScript 配置 |
 | 版本变更 | `.changeset` | 扩展 package 发布变更记录 |
 
@@ -147,6 +147,20 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 核心入口：`apps/chrome-extension/src/core/docx.ts`
 
+核心转换模块按职责拆分：
+
+| 模块 | 路径 | 职责 |
+| --- | --- | --- |
+| Docx 门面 | `src/core/docx.ts` | 封装页面运行时、加载状态判断、Transformer 调用和 Markdown 序列化入口 |
+| 飞书 block 类型 | `src/core/lark.ts` | 维护 Lark Docx block、operation、caption、table、ISV 等结构类型 |
+| mdast 类型扩展 | `src/core/mdast-extensions.ts` | 为 table/list/mention 后处理补充 mdast `data` 类型 |
+| Transformer | `src/core/transformer.ts` | 维护转换状态，把 block tree 转换成 mdast，并收集 mention/table 后处理任务 |
+| Inline 转换 | `src/core/inline.ts` | 将飞书 operation/attribute 转为 mdast phrasing content |
+| 列表归并 | `src/core/list.ts` | 将连续 listItem 合并成 Markdown list |
+| 嵌入内容转换 | `src/core/embeds.ts` | 转换 iframe、图片 alt、ISV Mermaid timeline 等嵌入内容 |
+| Markdown 序列化 | `src/core/markdown.ts` | 统一配置 `mdast-util-to-markdown`、GFM 和 math 扩展 |
+| 表格 HTML 后处理 | `src/core/table-html.ts` | 将 table mdast 统一转换为 HTML，并处理 span/colgroup |
+
 ### 7.1 页面运行时适配
 
 `apps/chrome-extension/src/core/runtime.ts` 从当前页面读取飞书运行时对象：
@@ -159,13 +173,13 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 - `isDocx`：当前页面是否是新版 Docx。
 - `isDoc`：是否是旧版 Doc。
 - `rootBlock`：读取 `PageMain.blockManager.rootBlockModel`。
-- `isReady`：判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
-- `intoMarkdownAST`：把飞书 block tree 转换成 mdast。
-- `Docx.stringify`：使用 `mdast-util-to-markdown` 输出 Markdown，并启用 GFM 删除线、任务列表和数学表达式扩展。
+- `isReady`：递归判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
+- `intoMarkdownAST`：调用 `Transformer` 把飞书 block tree 转换成 mdast。
+- `Docx.stringify`：委托 `markdown.ts` 输出 Markdown，并启用 GFM 删除线、任务列表和数学表达式扩展。
 
 ### 7.2 Transformer
 
-`Transformer` 负责把飞书 block 转换成 mdast 节点。它维护以下转换过程状态：
+`apps/chrome-extension/src/core/transformer.ts` 负责把飞书 block 转换成 mdast 节点。它维护以下转换过程状态：
 
 - `parent`：当前 mdast 父节点，用于决定图片是否包裹 paragraph、表格替换位置等。
 - `mentionUsers`：待二次解析的用户 mention。
@@ -193,7 +207,7 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 ### 7.3 Inline 内容转换
 
-飞书文本使用 operation/attribute 结构。转换时会处理：
+飞书文本使用 operation/attribute 结构，由 `apps/chrome-extension/src/core/inline.ts` 转换。转换时会处理：
 
 - 普通文本。
 - 加粗、斜体、删除线、下划线。

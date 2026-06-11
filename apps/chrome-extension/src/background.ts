@@ -1,4 +1,4 @@
-import { type Message } from './core/message'
+import { Flag, type Message } from './core/message'
 
 const sharedDocumentUrlPatterns: string[] = [
   'https://*.feishu.cn/*',
@@ -9,31 +9,35 @@ const sharedDocumentUrlPatterns: string[] = [
   'https://*.larkenterprise.com/*',
 ]
 
-enum MenuItemId {
-  VIEW_DOCX_AS_MARKDOWN = 'view_docx_as_markdown',
-}
+const scriptByFlag = {
+  [Flag.ExecuteViewScript]: 'bundles/scripts/view-lark-docx-as-markdown.js',
+} satisfies Record<Flag, string>
+
+const isExecutableFlag = (flag: unknown): flag is Flag =>
+  typeof flag === 'string' && Object.hasOwn(scriptByFlag, flag)
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
-    id: MenuItemId.VIEW_DOCX_AS_MARKDOWN,
+    id: Flag.ExecuteViewScript,
     title: 'View as Markdown',
     documentUrlPatterns: sharedDocumentUrlPatterns,
     contexts: ['page', 'editable'],
   })
 })
 
-const executeScriptByFlag = async (flag: string | number, tabId: number) => {
-  switch (flag) {
-    case MenuItemId.VIEW_DOCX_AS_MARKDOWN:
-      await chrome.scripting.executeScript({
-        files: ['bundles/scripts/view-lark-docx-as-markdown.js'],
-        target: { tabId },
-        world: 'MAIN',
-      })
-      break
-    default:
-      break
+const executeScriptByFlag = async (
+  flag: string | number,
+  tabId: number,
+): Promise<void> => {
+  if (!isExecutableFlag(flag)) {
+    return
   }
+
+  await chrome.scripting.executeScript({
+    files: [scriptByFlag[flag]],
+    target: { tabId },
+    world: 'MAIN',
+  })
 }
 
 chrome.contextMenus.onClicked.addListener(({ menuItemId }, tab) => {

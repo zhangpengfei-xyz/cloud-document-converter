@@ -8,11 +8,6 @@
     "dev:pages": "vite"
   },
   "devDependencies": {
-    "@babel/core": "catalog:dev",
-    "@babel/plugin-transform-runtime": "catalog:dev",
-    "@babel/preset-env": "catalog:dev",
-    "@babel/preset-typescript": "catalog:dev",
-    "@rollup/plugin-babel": "catalog:build",
     "@tailwindcss/vite": "catalog:dev",
     "@vitejs/plugin-vue": "catalog:dev",
     "@vue/tsconfig": "catalog:dev",
@@ -26,7 +21,6 @@
     "vue-tsc": "catalog:tools"
   },
   "dependencies": {
-    "@babel/runtime": "catalog:prod",
     "es-toolkit": "catalog:prod",
     "hast-util-to-html": "catalog:prod",
     "lucide-vue-next": "catalog:prod",

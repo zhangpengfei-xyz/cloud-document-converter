@@ -2,7 +2,8 @@ import { toHast } from 'mdast-util-to-hast'
 import { toHtml } from 'hast-util-to-html'
 import type * as hast from 'hast'
 import type * as mdast from 'mdast'
-import { BlockType, type TableWithParent } from './docx'
+import { BlockType } from './lark'
+import type { TableWithParent } from './transformer'
 
 /**
  * Filters out redundant cells that are covered by rowSpan/colSpan

@@ -10,7 +10,6 @@
         "images/**/*",
         "manifest.json",
         "popup.html",
-        "babel.config.json",
         "tsconfig*.json",
         "tsdown.config.ts",
         "vite.config.ts",
