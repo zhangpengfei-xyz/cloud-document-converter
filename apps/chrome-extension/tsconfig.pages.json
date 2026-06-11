@@ -9,10 +9,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "src/pages",
-    "src/env.d.ts",
-    "src/chrome-types.d.ts",
-    "src/vue.d.ts"
-  ]
+  "include": ["src/pages", "src/chrome-types.d.ts", "src/vue.d.ts"]
 }

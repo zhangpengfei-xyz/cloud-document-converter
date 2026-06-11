@@ -35,7 +35,6 @@
     "mdast-util-math": "catalog:prod",
     "mdast-util-to-hast": "catalog:prod",
     "mdast-util-to-markdown": "catalog:markdown",
-    "serialize-error": "catalog:prod",
     "vue": "catalog:prod"
   },
   "browserslist": [

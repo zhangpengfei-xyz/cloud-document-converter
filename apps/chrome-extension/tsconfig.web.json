@@ -8,12 +8,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "src/env.d.ts",
-    "src/scripts/*.ts",
-    "src/common/*.ts",
-    "src/lark/**/*.ts",
-    "src/lark/**/*.d.ts",
-    "src/shared/**/*.ts"
-  ]
+  "include": ["src/scripts/*.ts", "src/core/**/*.ts", "src/core/**/*.d.ts"]
 }

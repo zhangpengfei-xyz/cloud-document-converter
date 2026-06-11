@@ -3,7 +3,20 @@
   "tasks": {
     "build": {
       "outputs": ["dist/**"],
-      "inputs": ["apps/chrome-extension/src/**/*"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "src/**/*",
+        "scripts/**/*",
+        "images/**/*",
+        "manifest.json",
+        "popup.html",
+        "babel.config.json",
+        "tsconfig*.json",
+        "tsdown.config.ts",
+        "vite.config.ts",
+        "../../pnpm-lock.yaml",
+        "../../pnpm-workspace.yaml"
+      ],
       "cache": true
     },
     "type-check": {}

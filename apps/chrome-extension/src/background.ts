@@ -1,4 +1,4 @@
-import { type Message } from './common/message'
+import { type Message } from './core/message'
 
 const sharedDocumentUrlPatterns: string[] = [
   'https://*.feishu.cn/*',

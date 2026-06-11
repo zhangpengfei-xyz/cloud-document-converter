@@ -1,6 +1,9 @@
-import { Docx, docx, Toast } from '../lark'
-import { reportBug } from '../common/issue'
-import { transformMentionUsers, transformTablesToHtml } from '../common/utils'
+import {
+  Docx,
+  docx,
+  transformMentionUsers,
+  transformTablesToHtml,
+} from '../core'
 
 const message = {
   unknownError: 'Unknown error while opening preview',
@@ -13,23 +16,29 @@ const message = {
   failedToOpenWindow: 'Failed to Open a new window to display markdown.',
 }
 
+const logError = (content: string, error?: unknown): void => {
+  if (error === undefined) {
+    console.error(`[Cloud Document Converter] ${content}`)
+  } else {
+    console.error(`[Cloud Document Converter] ${content}`, error)
+  }
+}
+
 const main = async () => {
   if (docx.isDoc) {
-    Toast.warning({ content: message.notSupportDoc1 })
+    logError(message.notSupportDoc1)
 
     return
   }
 
   if (!docx.isDocx) {
-    Toast.warning({ content: message.notSupport })
+    logError(message.notSupport)
 
     return
   }
 
   if (!docx.isReady()) {
-    Toast.warning({
-      content: message.contentLoading,
-    })
+    logError(message.contentLoading)
 
     return
   }
@@ -44,9 +53,7 @@ const main = async () => {
   const previewWindow = window.open('', '_blank', 'width=800,height=600')
 
   if (!previewWindow) {
-    Toast.error({
-      content: message.failedToOpenWindow,
-    })
+    logError(message.failedToOpenWindow)
 
     return
   }
@@ -84,11 +91,5 @@ const main = async () => {
 }
 
 main().catch((error: unknown) => {
-  Toast.error({
-    content: message.unknownError,
-    actionText: 'Report Bug',
-    onActionClick: () => {
-      reportBug(error)
-    },
-  })
+  logError(message.unknownError, error)
 })

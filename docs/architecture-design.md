@@ -41,19 +41,18 @@ flowchart LR
   FloatingButtons --> Background
 
   Background --> InjectedScripts["MAIN world 注入脚本<br/>view"]
-  InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/Toast/globalConfig"]
-  InjectedScripts --> LarkModule["src/lark<br/>Docx -> mdast -> Markdown"]
+  InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/editor"]
+  InjectedScripts --> CoreModule["src/core<br/>Docx -> mdast -> Markdown"]
   InjectedScripts --> Output["预览窗口"]
   Content["Content Script"] --> FloatingButtons
 ```
 
-系统由五个主要层次组成：
+系统由四个主要层次组成：
 
 1. 扩展入口层：`manifest.json` 声明权限、页面、content script 和 background service worker。
 2. 用户交互层：Popup、右键菜单、飞书页面浮动按钮。
 3. 执行编排层：Background 根据用户动作向当前 Tab 注入具体功能脚本。
-4. 转换引擎层：`apps/chrome-extension/src/lark` 从飞书页面运行时读取 Docx block tree，转换为 mdast，再序列化为 Markdown。
-5. 公共基础设施层：`apps/chrome-extension/src/shared` 提供等待、时间常量和 DOM 轮询工具。
+4. 转换核心层：`apps/chrome-extension/src/core` 从飞书页面运行时读取 Docx block tree，转换为 mdast，执行 mention/table 后处理，再序列化为 Markdown。
 
 ## 4. 单包模块划分
 
@@ -61,9 +60,7 @@ flowchart LR
 | --- | --- | --- |
 | 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 统一脚本、依赖目录、Turborepo 任务缓存 |
 | Chrome Extension package | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
-| Lark 转换模块 | `apps/chrome-extension/src/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片 token URL 映射 |
-| Shared 工具模块 | `apps/chrome-extension/src/shared` | 应用内部通用工具、时间常量、DOM 轮询工具 |
-| 扩展业务公共模块 | `apps/chrome-extension/src/common` | 错误上报、表格 HTML 后处理、扩展消息枚举 |
+| Core 转换模块 | `apps/chrome-extension/src/core` | 飞书运行时适配、Docx block 模型转换、Markdown 序列化、mention 解析、表格 HTML 后处理、扩展消息枚举 |
 | TS 配置 | `apps/chrome-extension/tsconfig*.json`, 根 `tsconfig.json` | 应用与根工具脚本的 TypeScript 配置 |
 | 版本变更 | `.changeset` | 扩展 package 发布变更记录 |
 
@@ -71,12 +68,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Extension["扩展入口与页面"] --> Lark["src/lark"]
-  Extension --> AppCommon["src/common"]
-  Extension --> Shared["src/shared"]
-  Lark --> Shared
-  AppCommon --> Lark
-  AppCommon --> Shared
+  Extension["扩展入口与页面"] --> Core["src/core"]
 ```
 
 ## 5. 浏览器扩展架构
@@ -153,14 +145,13 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 ## 7. Markdown 转换架构
 
-核心入口：`apps/chrome-extension/src/lark/docx.ts`
+核心入口：`apps/chrome-extension/src/core/docx.ts`
 
 ### 7.1 页面运行时适配
 
-`apps/chrome-extension/src/lark/env.ts` 从当前页面读取飞书运行时对象：
+`apps/chrome-extension/src/core/runtime.ts` 从当前页面读取飞书运行时对象：
 
 - `window.PageMain`：Docx block tree、定位 block 的能力。
-- `window.Toast`：复用飞书页面 Toast UI。
 - `window.editor`：用于判断旧版 Doc 页面。
 
 `Docx` 类对页面能力做统一封装：
@@ -168,9 +159,7 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 - `isDocx`：当前页面是否是新版 Docx。
 - `isDoc`：是否是旧版 Doc。
 - `rootBlock`：读取 `PageMain.blockManager.rootBlockModel`。
-- `pageTitle`：从 root block 文本推导文件名。
 - `isReady`：判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
-- `scrollTo`：滚动飞书文档容器，用于触发懒加载。
 - `intoMarkdownAST`：把飞书 block tree 转换成 mdast。
 - `Docx.stringify`：使用 `mdast-util-to-markdown` 输出 Markdown，并启用 GFM 删除线、任务列表和数学表达式扩展。
 
@@ -217,7 +206,7 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 ### 7.4 表格与 Grid 后处理
 
-扩展层在 `apps/chrome-extension/src/common/utils.ts` 执行固定后处理：
+核心层在 `apps/chrome-extension/src/core/table-html.ts` 执行固定后处理：
 
 - Grid 在 Transformer 中直接扁平化为子块。
 - 所有 table 统一转 HTML。
@@ -235,11 +224,11 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 1. 校验当前页面是 Docx，且文档内容已加载完成。
 2. 调用 `docx.intoMarkdownAST` 生成 mdast，过程中固定保留文本高亮并扁平化 Grid。
-3. 解析 mention 用户。
+3. 解析 mention 用户：定位所属 block 后立即读取当前 DOM，不再做超时轮询等待。
 4. 将所有 table 转 HTML。
 5. `Docx.stringify(root)` 输出 Markdown。
 6. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
-7. 用 Toast 提示失败或可上报错误。
+7. 失败信息统一写入 `console.error`。
 
 ## 9. 资源访问设计
 
@@ -281,7 +270,7 @@ Popup 直接根据 `prefers-color-scheme` 初始化主题并监听系统主题�
 - `content.ts` 和 `src/scripts/*.ts` 构建为 IIFE，输出到 `dist/bundles/`。
 - `platform: 'browser'`，`target: es2024`。
 - release 模式开启 minify 和 Babel runtime。
-- 本地 Lark 与 shared 模块通过源码相对路径参与同一次脚本构建，不再依赖旧多包架构的 `dev` condition。
+- 本地 core 模块通过源码相对路径参与同一次脚本构建，不再依赖旧多包架构的 `dev` condition。
 
 `apps/chrome-extension/vite.config.ts` 的关键策略：
 
@@ -307,11 +296,11 @@ Turborepo 根任务：
 | --- | --- | --- |
 | 依赖飞书页面私有运行时对象 | 飞书前端结构变更可能导致转换失效 | 为 `PageMain`、block schema、DOM selector 增加更明确的兼容层 |
 | 复杂表格与 Grid 无法完全用 GFM 表达 | Markdown 输出可能丢结构 | 继续使用固定 HTML 降级与 Grid 扁平化策略 |
-| 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 保持预览动作直接由用户触发，并在失败时给出 Toast 提示 |
+| 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 保持预览动作直接由用户触发，并在失败时写入 `console.error` |
 
 ## 14. 演进建议
 
-1. 抽象页面运行时适配层：把 `window.PageMain`、`window.globalConfig`、DOM selector 集中到独立 adapter，降低飞书改版影响面。
-2. 收敛预览脚本中的页面校验、AST 转换、mention/table 后处理，让流程更容易复用。
+1. 持续收敛页面运行时适配层：把 `window.PageMain` 和 DOM selector 集中到 `src/core/runtime.ts` 及相关 core 文件，降低飞书改版影响面。
+2. 继续拆分预览脚本中的页面校验、AST 转换、mention/table 后处理，让流程更容易复用。
 3. 完善图片 token URL 在不同飞书/Lark 域名下的可访问性验证。
 4. 完善浏览器兼容矩阵：持续验证 Chromium 与 Firefox target 的 manifest、background 和窗口打开行为差异。

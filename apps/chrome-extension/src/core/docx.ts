@@ -1,20 +1,19 @@
 import type * as mdast from 'mdast'
 import { chunk } from 'es-toolkit/array'
-import { isDefined, OneHundred } from '../shared'
 import { toMarkdown, type Options } from 'mdast-util-to-markdown'
 import { gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
 import { gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
 import { mathToMarkdown, type InlineMath } from 'mdast-util-math'
-import { PageMain, isDoc, isDocx } from './env'
+import { isDefined } from './utils'
+import { PageMain, isDoc, isDocx } from './runtime'
 import {
   isBlockquoteContent,
   isPhrasingContent,
   isRootContent,
   isTableCell,
   isListItemContent,
-} from './utils/mdast'
-import { isString } from 'es-toolkit/compat'
-import { escape } from 'es-toolkit/compat'
+} from './markdown-ast'
+import { escape, isString } from 'es-toolkit/compat'
 import { toCamelCaseKeys } from 'es-toolkit/object'
 
 declare module 'mdast' {
@@ -434,8 +433,11 @@ interface IframeBlock extends Block {
   }
 }
 
+const DEFAULT_IFRAME_HEIGHT = 400
+
 const iframeToHTML = (iframe: IframeBlock): mdast.Html | null => {
-  const { height = 4 * OneHundred, component = {} } = iframe.snapshot.iframe
+  const { height = DEFAULT_IFRAME_HEIGHT, component = {} } =
+    iframe.snapshot.iframe
   const { url } = component
 
   if (!url) {
@@ -1434,67 +1436,18 @@ export class Docx {
     return PageMain.blockManager.rootBlockModel
   }
 
-  get pageTitle(): string | undefined {
-    if (!this.rootBlock?.zoneState) return undefined
-
-    return trimEndEnter(this.rootBlock.zoneState.allText)
-  }
-
-  get container(): HTMLDivElement | null {
-    const container = document.querySelector<HTMLDivElement>(
-      '#mainBox .bear-web-x-container',
-    )
-
-    return container
-  }
-
-  isReady(
-    options: {
-      /**
-       * @default false
-       */
-      checkWhiteboard?: boolean
-    } = {},
-  ): boolean {
-    const { checkWhiteboard = false } = options
-
+  isReady(): boolean {
     return (
       !!this.rootBlock &&
       this.rootBlock.children.every(block => {
         const prerequisite = block.snapshot.type !== 'pending'
 
-        const isWhiteboard = (block: Blocks): boolean =>
-          block.type === BlockType.WHITEBOARD ||
-          (block.type === BlockType.FALLBACK &&
-            block.snapshot.type === BlockType.WHITEBOARD)
-
         const isSyncedReferenceReady = (block: Blocks): boolean =>
           block.type !== BlockType.SYNCED_REFERENCE || block.isAllDataReady
-
-        if (checkWhiteboard && isWhiteboard(block)) {
-          return prerequisite && block.type !== BlockType.FALLBACK
-        }
 
         return prerequisite && isSyncedReferenceReady(block)
       })
     )
-  }
-
-  scrollTo(options: ScrollToOptions): void {
-    const container = this.container
-    if (container) {
-      const {
-        left,
-        top = container.scrollHeight,
-        behavior = 'smooth',
-      } = options
-
-      container.scrollTo({
-        left,
-        top: Math.min(top, container.scrollHeight),
-        behavior,
-      })
-    }
   }
 
   intoMarkdownAST(): TransformResult {

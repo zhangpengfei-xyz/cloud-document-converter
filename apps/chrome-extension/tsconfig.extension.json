@@ -11,11 +11,8 @@
   "include": [
     "src/background.ts",
     "src/content.ts",
-    "src/env.d.ts",
     "src/chrome-types.d.ts",
-    "src/common/*.ts",
-    "src/lark/**/*.ts",
-    "src/lark/**/*.d.ts",
-    "src/shared/**/*.ts"
+    "src/core/**/*.ts",
+    "src/core/**/*.d.ts"
   ]
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Eye } from 'lucide-vue-next'
-import { Flag } from '@/common/message'
+import { Flag } from '@/core/message'
 
 const handleViewAsMarkdown = async () => {
   if (import.meta.env.DEV) {

@@ -118,9 +118,6 @@ catalogs:
     mdast-util-to-hast:
       specifier: ^13.2.0
       version: 13.2.0
-    serialize-error:
-      specifier: ^12.0.0
-      version: 12.0.0
     vue:
       specifier: ^3.5.22
       version: 3.5.22
@@ -235,9 +232,6 @@ importers:
       mdast-util-to-markdown:
         specifier: catalog:markdown
         version: 2.1.2
-      serialize-error:
-        specifier: catalog:prod
-        version: 12.0.0
       vue:
         specifier: catalog:prod
         version: 3.5.22(typescript@5.9.3)
@@ -3940,10 +3934,6 @@ packages:
     resolution: {integrity: sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==}
     engines: {node: '>=10'}
     hasBin: true
-
-  serialize-error@12.0.0:
-    resolution: {integrity: sha512-ZYkZLAvKTKQXWuh5XpBw7CdbSzagarX39WyZ2H07CDLC5/KfsRGlIXV8d4+tfqX1M7916mRqR1QfNHSij+c9Pw==}
-    engines: {node: '>=18'}
 
   set-function-length@1.2.2:
     resolution: {integrity: sha512-pgRc4hJ4/sNjWCSS9AmnS40x3bNMDTknHgL5UaMBTMyJnU90EgWh1Rz+MC9eFu4BuN/UwZjKQuY/1v3rM7HMfg==}
@@ -8559,10 +8549,6 @@ snapshots:
   semver@7.7.3: {}
 
   semver@7.7.4: {}
-
-  serialize-error@12.0.0:
-    dependencies:
-      type-fest: 4.41.0
 
   set-function-length@1.2.2:
     dependencies:

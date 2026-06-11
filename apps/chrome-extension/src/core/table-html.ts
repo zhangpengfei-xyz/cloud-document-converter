@@ -1,13 +1,8 @@
 import { toHast } from 'mdast-util-to-hast'
 import { toHtml } from 'hast-util-to-html'
-import {
-  Docx,
-  type TableWithParent,
-  type mdast,
-  type hast,
-  BlockType,
-} from '../lark'
-import { Second, waitForFunction } from '../shared'
+import type * as hast from 'hast'
+import type * as mdast from 'mdast'
+import { BlockType, type TableWithParent } from './docx'
 
 /**
  * Filters out redundant cells that are covered by rowSpan/colSpan
@@ -125,36 +120,4 @@ export const transformTablesToHtml = (tables: TableWithParent[]): void => {
       })
     }
   })
-}
-
-export const transformMentionUsers = async (
-  mentionUsers: mdast.InlineCode[],
-): Promise<void> => {
-  for (const user of mentionUsers) {
-    if (user.data?.parentBlockRecordId && user.data.mentionUserId) {
-      await waitForFunction(
-        () =>
-          Docx.locateBlockWithRecordId(
-            user.data?.parentBlockRecordId ?? '',
-          ).then(
-            isSuccess =>
-              isSuccess &&
-              document.querySelector(
-                `a[data-token="${user.data?.mentionUserId ?? ''}"]`,
-              ) !== null,
-          ),
-        {
-          timeout: 3 * Second,
-        },
-      )
-
-      const el: HTMLElement | null = document.querySelector(
-        `a[data-token="${user.data.mentionUserId}"]`,
-      )
-
-      if (el?.innerText) {
-        user.value = '@' + el.innerText
-      }
-    }
-  }
 }
