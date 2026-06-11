@@ -48,16 +48,26 @@ const canMergeListItems = (
 
 const createList = (children: mdast.ListItem[]): mdast.List => {
   const first = children[0]
+  const ordered = listItemType(first) === BlockType.ORDERED
+  const start = ordered
+    ? typeof first.data?.seq === 'number'
+      ? first.data.seq
+      : 1
+    : null
+
+  const normalizedChildren = children.map<mdast.ListItem>(child => ({
+    type: 'listItem',
+    spread: child.children.filter(node => node.type === 'paragraph').length > 1,
+    checked: typeof child.checked === 'boolean' ? child.checked : null,
+    children: child.children,
+  }))
 
   return {
     type: 'list',
-    ...(typeof first.data?.seq === 'number'
-      ? {
-          ordered: true,
-          start: first.data.seq,
-        }
-      : null),
-    children,
+    ordered,
+    start,
+    spread: false,
+    children: normalizedChildren,
   }
 }
 

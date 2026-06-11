@@ -114,6 +114,17 @@ export class Transformer {
     return contents
   }
 
+  private createParagraph(
+    children: mdast.PhrasingContent[],
+  ): mdast.Paragraph | null {
+    return children.length > 0
+      ? {
+          type: 'paragraph',
+          children,
+        }
+      : null
+  }
+
   private createListItem(
     block: BulletBlock | OrderedBlock | TodoBlock,
   ): mdast.ListItem {
@@ -172,14 +183,23 @@ export class Transformer {
   private transformHeading(block: HeadingBlock): mdast.Heading {
     const depth = Number(block.type.at(-1)) as mdast.Heading['depth']
     const sequenceText = this.createHeadingSequenceText(block, depth)
+    const children = this.transformInlineContents(block)
+
+    if (sequenceText) {
+      if (children[0]?.type === 'text') {
+        children[0] = {
+          ...children[0],
+          value: sequenceText.value + children[0].value,
+        }
+      } else {
+        children.unshift(sequenceText)
+      }
+    }
 
     return {
       type: 'heading',
       depth,
-      children: [
-        ...(sequenceText ? [sequenceText] : []),
-        ...this.transformInlineContents(block),
-      ],
+      children,
     }
   }
 
@@ -371,7 +391,8 @@ export class Transformer {
       case BlockType.CODE: {
         return {
           type: 'code',
-          lang: block.language.toLocaleLowerCase(),
+          lang: block.language ? block.language.toLocaleLowerCase() : null,
+          meta: null,
           value: trimTrailingLineBreak(block.zoneState?.allText ?? ''),
         }
       }
@@ -389,15 +410,14 @@ export class Transformer {
       case BlockType.BULLET:
       case BlockType.ORDERED:
       case BlockType.TODO: {
-        const paragraph: mdast.Paragraph = {
-          type: 'paragraph',
-          children: this.transformInlineContents(block),
-        }
+        const paragraph = this.createParagraph(
+          this.transformInlineContents(block),
+        )
         return this.transformParentBlock(
           block,
           this.createListItem(block),
           nodes => [
-            paragraph,
+            ...(paragraph ? [paragraph] : []),
             ...mergeListItems(nodes).filter(isListItemContent),
           ],
         )
@@ -406,10 +426,7 @@ export class Transformer {
       case BlockType.HEADING7:
       case BlockType.HEADING8:
       case BlockType.HEADING9: {
-        return {
-          type: 'paragraph',
-          children: this.transformInlineContents(block),
-        }
+        return this.createParagraph(this.transformInlineContents(block))
       }
       case BlockType.IMAGE: {
         const { caption, token } = block.snapshot.image
@@ -417,6 +434,7 @@ export class Transformer {
           type: 'image',
           url: token,
           alt: evaluateAlt(caption),
+          title: null,
         }
 
         return this.normalizeImage(image)

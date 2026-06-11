@@ -1,8 +1,6 @@
 import type * as mdast from 'mdast'
-import { escape } from 'es-toolkit/string'
 import { isNotNil } from 'es-toolkit/predicate'
 import type { Operation } from './lark'
-import type { InlineMath } from 'mdast-util-math'
 
 export const trimTrailingLineBreak = (input: string): string =>
   input.length > 0 && input.endsWith('\n') ? input.slice(0, -1) : input
@@ -136,9 +134,21 @@ const sortOperationMarks = (
         markSpanLength(b, index, marksByIndex, operations),
     )
 
-const createLiteralNode = (
-  op: Operation,
-): mdast.Text | mdast.InlineCode | InlineMath | mdast.Html => {
+const createHtmlWrapper = (
+  tagName: string,
+  attributes?: string,
+): [mdast.Html, mdast.Html] => [
+  {
+    type: 'html',
+    value: attributes ? `<${tagName} ${attributes}>` : `<${tagName}>`,
+  },
+  {
+    type: 'html',
+    value: `</${tagName}>`,
+  },
+]
+
+const createLiteralNodes = (op: Operation): mdast.PhrasingContent[] => {
   const { attributes, insert } = op
   const {
     inlineCode,
@@ -150,95 +160,112 @@ const createLiteralNode = (
   } = attributes ?? {}
 
   if (mentionUserId) {
-    return {
-      type: 'inlineCode',
-      value: insert,
-      data: {
-        mentionUserId,
+    return [
+      {
+        type: 'inlineCode',
+        value: insert,
+        data: {
+          mentionUserId,
+        },
       },
-    }
+    ]
   }
 
   if (inlineCode) {
-    return {
-      type: 'inlineCode',
-      value: insert,
-    }
+    return [
+      {
+        type: 'inlineCode',
+        value: insert,
+      },
+    ]
   }
 
   if (equation && equation.length > 0) {
-    return {
-      type: 'inlineMath',
-      value: trimTrailingLineBreak(equation),
-    }
+    return [
+      {
+        type: 'inlineMath',
+        value: trimTrailingLineBreak(equation),
+      },
+    ]
   }
 
-  if (textHighlight || textHighlightBackground) {
-    const highlighted = `<span style="color: ${textHighlight ?? 'inherit'}; background-color: ${textHighlightBackground ?? 'inherit'}">${escape(insert)}</span>`
+  let nodes: mdast.PhrasingContent[] = [{ type: 'text', value: insert }]
 
-    return {
-      type: 'html',
-      value: underline ? `<u>${highlighted}</u>` : highlighted,
-    }
+  if (textHighlight || textHighlightBackground) {
+    const [open, close] = createHtmlWrapper(
+      'span',
+      `style="color: ${textHighlight ?? 'inherit'}; background-color: ${textHighlightBackground ?? 'inherit'}"`,
+    )
+
+    nodes = [open, ...nodes, close]
   }
 
   if (underline) {
-    return {
-      type: 'html',
-      value: `<u>${escape(insert)}</u>`,
-    }
+    const [open, close] = createHtmlWrapper('u')
+
+    nodes = [open, ...nodes, close]
   }
 
-  return {
-    type: 'text',
-    value: insert,
-  }
+  return nodes
 }
 
 const wrapWithMark = (
-  node: mdast.PhrasingContent,
+  children: mdast.PhrasingContent[],
   mark: MarkNodeType,
   op: Operation,
-): mdast.PhrasingContent => {
+): mdast.PhrasingContent[] => {
   switch (mark) {
     case 'link':
-      return {
-        type: 'link',
-        url: decodeURIComponent(op.attributes?.link ?? ''),
-        children: [node],
-      }
+      return [
+        {
+          type: 'link',
+          title: null,
+          url: decodeURIComponent(op.attributes?.link ?? ''),
+          children,
+        },
+      ]
     case 'emphasis':
-      return {
-        type: 'emphasis',
-        children: [node],
-      }
+      return [
+        {
+          type: 'emphasis',
+          children,
+        },
+      ]
     case 'strong':
-      return {
-        type: 'strong',
-        children: [node],
-      }
+      return [
+        {
+          type: 'strong',
+          children,
+        },
+      ]
     case 'delete':
-      return {
-        type: 'delete',
-        children: [node],
-      }
+      return [
+        {
+          type: 'delete',
+          children,
+        },
+      ]
     default:
       return undefined as never
   }
 }
 
-const transformOperationToPhrasingContent = (
+const transformOperationToPhrasingContents = (
   op: Operation,
   marks: MarkNodeType[],
   mentionUsers: mdast.InlineCode[],
-): mdast.PhrasingContent => {
-  const literal = createLiteralNode(op)
+): mdast.PhrasingContent[] => {
+  const literal = createLiteralNodes(op)
+  const mentionUser = literal.find(
+    (node): node is mdast.InlineCode =>
+      node.type === 'inlineCode' && Boolean(node.data?.mentionUserId),
+  )
 
-  if (literal.type === 'inlineCode' && literal.data?.mentionUserId) {
-    mentionUsers.push(literal)
+  if (mentionUser) {
+    mentionUsers.push(mentionUser)
   }
 
-  return marks.reduce<mdast.PhrasingContent>(
+  return marks.reduce<mdast.PhrasingContent[]>(
     (node, mark) => wrapWithMark(node, mark, op),
     literal,
   )
@@ -263,7 +290,7 @@ const canMergePhrasingContent = (
   }
 
   if (current.type === 'link' && next.type === 'link') {
-    return current.url === next.url
+    return current.url === next.url && current.title === next.title
   }
 
   if (current.type === 'inlineCode' && next.type === 'inlineCode') {
@@ -332,8 +359,10 @@ const mergePhrasingContents = (
     )
     .flatMap((current, index, merged) => {
       const next = merged.at(index + 1)
+      const needsSeparator =
+        next && current.type === next.type && current.type === 'inlineCode'
 
-      return next && current.type === next.type
+      return needsSeparator
         ? [current, { type: 'text', value: ' ' } satisfies mdast.Text]
         : [current]
     })
@@ -347,8 +376,8 @@ export const transformOperationsToPhrasingContents = (
     .filter(isRenderableOperation)
     .map(normalizeInlineComponentOperation)
   const marksByIndex = operations.map(getOperationMarks)
-  const nodes = operations.map((op, index) =>
-    transformOperationToPhrasingContent(
+  const nodes = operations.flatMap((op, index) =>
+    transformOperationToPhrasingContents(
       op,
       sortOperationMarks(marksByIndex[index], index, marksByIndex, operations),
       mentionUsers,
