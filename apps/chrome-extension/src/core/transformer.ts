@@ -48,6 +48,7 @@ export class Transformer {
   private mentionUsers: mdast.InlineCode[] = []
   private tableWithParents: TableWithParent[] = []
   private sequences: (string | undefined)[] = []
+  private orderedListSequences = new WeakMap<mdast.Parent, number>()
 
   private normalizeImage(image: mdast.Image): mdast.Image | mdast.Paragraph {
     return this.parent?.type === 'tableCell'
@@ -139,13 +140,30 @@ export class Transformer {
 
     if (block.type === BlockType.ORDERED) {
       listItem.data = {
-        seq: /[0-9]+/.test(block.snapshot.seq)
-          ? Number(block.snapshot.seq)
-          : 'auto',
+        seq: this.resolveOrderedListSequence(block),
       }
     }
 
     return listItem
+  }
+
+  private resolveOrderedListSequence(block: OrderedBlock): number | 'auto' {
+    const seq = /^\d+$/.test(block.snapshot.seq)
+      ? Number(block.snapshot.seq)
+      : null
+
+    if (!this.parent) {
+      return seq ?? 'auto'
+    }
+
+    if (seq !== null) {
+      this.orderedListSequences.set(this.parent, seq)
+      return seq
+    }
+
+    const nextSeq = (this.orderedListSequences.get(this.parent) ?? 0) + 1
+    this.orderedListSequences.set(this.parent, nextSeq)
+    return nextSeq
   }
 
   private createHeadingSequenceText(
@@ -155,6 +173,7 @@ export class Transformer {
     const { seq, seq_level: seqLevel } = block.snapshot
 
     if (typeof seq !== 'string') {
+      this.sequences = this.sequences.slice(0, depth - 1)
       return null
     }
 
@@ -485,6 +504,7 @@ export class Transformer {
     this.tableWithParents = []
     this.mentionUsers = []
     this.sequences = []
+    this.orderedListSequences = new WeakMap()
   }
 
   transform(block: PageBlock): TransformResult {
