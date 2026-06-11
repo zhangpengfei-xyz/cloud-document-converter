@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig(async cliOptions => {
   const isDev = Boolean(cliOptions.env?.['DEV'])
+  const scriptEntries = await glob('src/scripts/*.ts')
 
   const noExternal = Object.keys(packageJson.dependencies).map(
     dependency => new RegExp(`^${escapeRegExp(dependency)}`),
@@ -55,13 +56,10 @@ export default defineConfig(async cliOptions => {
     createModuleScriptConfig({
       background: 'src/background.ts',
     }),
-    ...(
-      [
-        { content: 'src/content.ts' },
-        ...(await glob('src/scripts/*.ts')).map(entry => ({
-          [`scripts/${path.parse(entry).name}`]: entry,
-        })),
-      ] satisfies Options['entry'][]
-    ).map(createClassicScriptConfig),
+    ...scriptEntries.map(entry =>
+      createClassicScriptConfig({
+        [`scripts/${path.parse(entry).name}`]: entry,
+      }),
+    ),
   ]
 })

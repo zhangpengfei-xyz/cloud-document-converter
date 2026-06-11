@@ -4,19 +4,19 @@
 
 ## 1. 概览
 
-Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览为 Markdown。扩展完全在浏览器本地运行：用户在文档页面触发预览后，后台脚本把转换脚本注入到当前页面的 MAIN world；转换脚本读取页面暴露的 Docx 运行时数据，把 block tree 转换为 mdast，完成 mention 和表格后处理，再序列化为 Markdown，并打开一个轻量预览窗口。
+Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览为 Markdown。扩展完全在浏览器本地运行：用户在扩展 Popup 点击预览后，后台脚本把转换脚本注入到当前页面的 MAIN world；转换脚本读取页面暴露的 Docx 运行时数据，把 block tree 转换为 mdast，完成 mention 和表格后处理，再序列化为 Markdown，并打开一个轻量预览窗口。
 
 当前仓库是 pnpm workspace + Turborepo 的单应用结构：
 
 - 根工作区：维护统一脚本、依赖 catalog、Turborepo 任务和基础工具配置。
-- `apps/chrome-extension`：维护扩展 manifest、Vue Popup、background/content scripts、注入脚本和 Docx 到 Markdown 的转换核心。
+- `apps/chrome-extension`：维护扩展 manifest、Vue Popup、background script、注入脚本和 Docx 到 Markdown 的转换核心。
 
 ## 2. 设计目标
 
 ### 2.1 业务目标
 
-- 在飞书/Lark Docx 页面提供低摩擦的 Markdown 预览入口。
-- 支持三种触发方式：扩展 Popup、页面右键菜单、文档页浮动按钮。
+- 在扩展 Popup 中提供单一、明确的 Markdown 预览入口。
+- 不在文档页面注入额外按钮，也不注册页面右键菜单。
 - 尽量保留文档结构，包括标题、段落、代码块、引用、列表、任务列表、表格、图片、iframe、行内样式、行内数学公式和部分 ISV 块。
 - 转换过程在用户浏览器本地完成，不把文档内容上传到项目自有服务。
 
@@ -25,7 +25,7 @@ Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览�
 - 扩展编排逻辑与核心转换逻辑分离。
 - 使用本地维护的 Lark block 类型和 mdast 作为转换中间表示。
 - 运行时适配层保持轻量，只访问 `window.PageMain`、`window.editor` 和页面提供的 block 定位 API。
-- 在单 package 内同时构建 background、content、注入脚本和 Vue Popup。
+- 在单 package 内同时构建 background、注入脚本和 Vue Popup。
 - 构建时根据 package version 生成最终扩展 manifest。
 
 ### 2.3 非目标
@@ -53,7 +53,6 @@ Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览�
         │   └── cli.ts
         ├── src/
         │   ├── background.ts
-        │   ├── content.ts
         │   ├── core/
         │   ├── pages/
         │   └── scripts/
@@ -70,7 +69,7 @@ Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览�
 | 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 工作区脚本、依赖 catalog、Turborepo 任务 |
 | 扩展应用 | `apps/chrome-extension` | Manifest V3 扩展包和所有运行时代码、构建代码 |
 | Popup UI | `src/pages/popup`, `popup.html` | Vue Popup 命令菜单和主题初始化 |
-| 扩展脚本 | `src/background.ts`, `src/content.ts` | MV3 background service worker 和 content script |
+| 扩展脚本 | `src/background.ts` | MV3 background service worker |
 | 注入脚本 | `src/scripts/*.ts` | 注入到页面 MAIN world 执行的功能脚本 |
 | 转换核心 | `src/core` | Lark 运行时适配、block 类型、Transformer、Markdown 序列化、mention/table 后处理 |
 | 构建工具 | `scripts/cli.ts`, `tsdown.config.ts`, `vite.config.ts` | 扩展脚本、页面、资源和 manifest 的构建流程 |
@@ -80,15 +79,10 @@ Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览�
 ```mermaid
 flowchart LR
   User["用户"] --> Popup["Popup 命令"]
-  User --> ContextMenu["右键菜单"]
-  User --> FloatingButton["页面浮动按钮"]
 
   Popup --> Background["MV3 Background Service Worker"]
-  ContextMenu --> Background
-  FloatingButton --> Background
 
   Background --> Injected["MAIN world 注入脚本"]
-  Content["Content Script"] --> FloatingButton
 
   Injected --> Runtime["飞书/Lark 页面运行时"]
   Injected --> Core["转换核心"]
@@ -98,8 +92,8 @@ flowchart LR
 
 系统运行时分为四层：
 
-1. 扩展声明层：`manifest.json` 声明权限、匹配域名、background worker、Popup 和 content script。
-2. 用户交互层：Popup、右键菜单和浮动按钮都会产生同一个动作 flag。
+1. 扩展声明层：`manifest.json` 声明权限、匹配域名、background worker 和 Popup。
+2. 用户交互层：Popup 产生预览动作 flag。
 3. 执行编排层：background worker 校验动作 flag，并向当前 Tab 的 MAIN world 注入对应脚本。
 4. 转换核心层：注入脚本使用 `src/core` 读取页面运行时、构建 mdast、执行后处理、序列化 Markdown 并打开预览窗口。
 
@@ -114,15 +108,8 @@ flowchart LR
 - 扩展名称：`Feishu Doc2Md`。
 - Popup 入口：`pages/popup.html`。
 - Background worker：`bundles/background.js`，类型为 `module`。
-- Content script：`bundles/content.js`，在 `document_end` 注入。
-- 权限：`contextMenus`、`scripting`。
-- host permissions 和 content script matches：
-  - `https://*.feishu.cn/*`
-  - `https://*.feishu.net/*`
-  - `https://*.larksuite.com/*`
-  - `https://*.feishu-pre.net/*`
-  - `https://*.larkoffice.com/*`
-  - `https://*.larkenterprise.com/*`
+- 权限：`activeTab`、`scripting`。
+- 不声明持久 `host_permissions`；用户点击扩展 Popup 时通过 `activeTab` 获取当前活动标签页的临时注入权限。
 
 构建流程会把源码 manifest 复制到 `dist/manifest.json`，再从 `apps/chrome-extension/package.json` 写入 `version`。
 
@@ -132,11 +119,9 @@ flowchart LR
 
 主要职责：
 
-- 扩展安装时注册 `View as Markdown` 右键菜单。
-- 维护动作 flag 到注入脚本文件的映射。
-- 处理右键菜单点击。
-- 处理 Popup 和 content script 发送的 runtime message。
-- 收到 runtime message 后查询当前窗口的 active tab。
+- 处理 Popup 发送的 runtime message。
+- 校验消息 flag 是否为预览动作。
+- 查询当前窗口的 active tab。
 - 调用 `chrome.scripting.executeScript` 注入脚本。
 - 使用 `world: 'MAIN'`，让注入脚本能够访问页面自己的全局对象，例如 `window.PageMain`。
 
@@ -146,24 +131,7 @@ flowchart LR
 | --- | --- |
 | `view_docx_as_markdown` | `bundles/scripts/view-lark-docx-as-markdown.js` |
 
-### 5.3 Content Script
-
-源码：`apps/chrome-extension/src/content.ts`
-
-Content script 只负责在文档页面添加浮动按钮，不读取文档数据，也不做转换。
-
-主要职责：
-
-- 等待页面出现可用于定位的 UI 锚点。
-- 在飞书/Lark 页面控制区旁渲染一个圆形 `View` 按钮。
-- 点击按钮时发送 `{ flag: Flag.ExecuteViewScript }` 给 background worker。
-- 当飞书/Lark 页面按钮 class 变化时重新计算浮动按钮位置。
-- 通过比较 `location.pathname` 观察 SPA 路由切换。
-- 路由切换后清理旧按钮和 observer，再重新初始化。
-
-浮动按钮使用页面 CSS 变量进行样式适配，并使用 `data-CDC-button-type` 属性。`CDC` 是从原项目名称遗留的内部命名，不影响功能。
-
-### 5.4 Popup 页面
+### 5.3 Popup 页面
 
 相关文件：
 
@@ -173,7 +141,7 @@ Content script 只负责在文档页面添加浮动按钮，不读取文档数�
 - `apps/chrome-extension/src/pages/shared/shared.css`
 - `apps/chrome-extension/src/pages/popup/main.css`
 
-Popup 是一个很小的 Vue 命令菜单，目前只有一个 `View as Markdown` 按钮。生产环境中点击按钮会发送与浮动按钮相同的 runtime message；开发环境中只输出调试日志，不调用 Chrome runtime API。
+Popup 是一个很小的 Vue 命令菜单，目前只有一个 `View as Markdown` 按钮。生产环境中点击按钮会发送 runtime message；开发环境中只输出调试日志，不调用 Chrome runtime API。
 
 Popup 主题是本地逻辑：
 
@@ -188,14 +156,14 @@ Popup 主题是本地逻辑：
 ```mermaid
 sequenceDiagram
   participant U as 用户
-  participant UI as Popup / 右键菜单 / 浮动按钮
+  participant UI as Popup
   participant BG as Background worker
   participant Tab as 当前文档 Tab
   participant Main as MAIN world 脚本
   participant PM as window.PageMain
 
   U->>UI: 触发 View as Markdown
-  UI->>BG: 发送 flag 或 context menu id
+  UI->>BG: 发送 flag
   BG->>BG: 校验 flag
   BG->>Tab: chrome.scripting.executeScript
   Tab->>Main: 执行 view-lark-docx-as-markdown.js
@@ -206,7 +174,7 @@ sequenceDiagram
 
 关键边界：
 
-- Popup 和 content script 运行在扩展/content-script 上下文。
+- Popup 运行在扩展上下文。
 - 转换脚本运行在页面 MAIN world。
 - 转换脚本可以访问页面全局对象，但不应依赖扩展上下文专属 API。
 
@@ -471,7 +439,7 @@ node --experimental-strip-types ./scripts/cli.ts build
 
 构建步骤：
 
-1. `buildScripts()`：使用 tsdown 构建 background、content 和注入脚本。
+1. `buildScripts()`：使用 tsdown 构建 background 和注入脚本。
 2. `buildPages()`：使用 rolldown-vite 构建 Vue Popup 页面。
 3. `copyResources()`：复制 `images/` 和 `manifest.json` 到 `dist/`。
 4. `genManifest()`：读取 `dist/manifest.json`，写入 package version；如果 target 是 Firefox，则把 service worker background 改写为 Firefox 需要的 scripts 形式。
@@ -494,7 +462,6 @@ CLI 参数：
 | Entry | Format | Output |
 | --- | --- | --- |
 | `src/background.ts` | ESM | `dist/bundles/background.js` |
-| `src/content.ts` | IIFE | `dist/bundles/content.js` |
 | `src/scripts/*.ts` | IIFE | `dist/bundles/scripts/*.js` |
 
 关键配置：
@@ -526,7 +493,7 @@ Vite/Rolldown 配置：
 | --- | --- |
 | `tsconfig.base.json` | 共享 strict compiler options |
 | `tsconfig.node.json` | 构建脚本和 bundler 配置 |
-| `tsconfig.extension.json` | Background/content scripts 和共享 core 类型 |
+| `tsconfig.extension.json` | Background script 和共享 core 类型 |
 | `tsconfig.web.json` | 注入脚本和共享 core 类型 |
 | `tsconfig.pages.json` | Vue 页面、DOM 和 Vite client 类型 |
 | `tsconfig.json` | package 级 composite reference root |
@@ -558,7 +525,7 @@ Vite/Rolldown 配置：
 - core 从 `window.PageMain` 读取文档结构。
 - mention 展示名在定位到所属 block 后从页面 DOM 读取。
 - 图片 URL 使用飞书/Lark image token 输出，项目自身不抓取也不上传图片。
-- 扩展只申请 manifest 中列出的文档域名权限。
+- 扩展不申请持久站点权限；只有用户点击扩展 Popup 后，`activeTab` 才授予当前活动标签页的临时脚本注入权限。
 - 错误日志应避免加入私有文档内容，当前实现只输出通用错误信息。
 
 ## 12. 当前限制
@@ -575,8 +542,7 @@ Vite/Rolldown 配置：
 后续可以考虑：
 
 1. 把页面 DOM selector 和运行时兼容检查进一步集中，降低飞书/Lark 页面改版影响。
-2. 替换内部遗留命名，例如 `data-CDC-button-type`。
-3. 为 `Transformer`、行内转换、列表合并、表格 HTML 替换和 mention fallback 增加 focused fixtures。
-4. 为不支持页面和内容未加载完成的情况增加用户可见反馈。
-5. 增加可选的渲染态 Markdown 预览，同时保留当前安全的纯文本预览。
-6. 持续验证 Firefox target 下 background 适配和 `window.open` 行为差异。
+2. 为 `Transformer`、行内转换、列表合并、表格 HTML 替换和 mention fallback 增加 focused fixtures。
+3. 为不支持页面和内容未加载完成的情况增加用户可见反馈。
+4. 增加可选的渲染态 Markdown 预览，同时保留当前安全的纯文本预览。
+5. 持续验证 Firefox target 下 background 适配和 `window.open` 行为差异。

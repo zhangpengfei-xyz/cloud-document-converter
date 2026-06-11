@@ -10,7 +10,6 @@
   },
   "include": [
     "src/background.ts",
-    "src/content.ts",
     "src/chrome-types.d.ts",
     "src/core/**/*.ts",
     "src/core/**/*.d.ts"
