@@ -1,4 +1,10 @@
-# @dolphin/chrome-extension
+# @feishu-doc2md/chrome-extension
+
+## 1.0.0
+
+### Major Changes
+
+- Rename the project to feishu-doc2md and the extension to Feishu Doc2Md.
 
 ## 1.10.7
 

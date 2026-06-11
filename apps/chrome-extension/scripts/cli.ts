@@ -119,7 +119,7 @@ const genManifest = async (options: BuildOptions) => {
 
     manifest.browser_specific_settings = {
       gecko: {
-        id: 'whale.4113@gmail.com',
+        id: 'zhangpengfei.xyz@outlook.com',
       },
     }
   }
@@ -135,7 +135,7 @@ const genManifest = async (options: BuildOptions) => {
   console.log(`Extension version: ${manifest.version}`)
 }
 
-const cli = cac('@dolphin/chrome-extension')
+const cli = cac('@feishu-doc2md/chrome-extension')
 cli.help().version(packageJson.version)
 
 cli

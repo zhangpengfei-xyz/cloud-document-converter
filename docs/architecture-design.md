@@ -1,320 +1,582 @@
-# Cloud Document Converter 架构设计文档
+# Feishu Doc2Md 架构设计文档
 
 最后更新：2026-06-11
 
-## 1. 背景
+## 1. 概览
 
-Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云文档页面中把 Docx 文档转换为 Markdown，并在新窗口中预览 Markdown。项目采用 pnpm workspace + Turborepo 的单应用结构，浏览器扩展、核心转换引擎和公共工具统一收敛在 `apps/chrome-extension` 一个 package 内。
+Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览为 Markdown。扩展完全在浏览器本地运行：用户在文档页面触发预览后，后台脚本把转换脚本注入到当前页面的 MAIN world；转换脚本读取页面暴露的 Docx 运行时数据，把 block tree 转换为 mdast，完成 mention 和表格后处理，再序列化为 Markdown，并打开一个轻量预览窗口。
+
+当前仓库是 pnpm workspace + Turborepo 的单应用结构：
+
+- 根工作区：维护统一脚本、依赖 catalog、Turborepo 任务和基础工具配置。
+- `apps/chrome-extension`：维护扩展 manifest、Vue Popup、background/content scripts、注入脚本和 Docx 到 Markdown 的转换核心。
 
 ## 2. 设计目标
 
 ### 2.1 业务目标
 
-- 在飞书/Lark Docx 页面内提供低摩擦的 Markdown 预览能力。
-- 支持用户把当前 Docx 文档转换为 Markdown 并在新窗口中查看。
-- 尽量保留文档结构，包括标题层级、列表、任务列表、表格、图片、iframe、内联样式和部分 ISV 块。
-- 使用固定内置转换策略：主题跟随系统，表格统一转 HTML，Grid 子块扁平化，文本高亮始终保留。
+- 在飞书/Lark Docx 页面提供低摩擦的 Markdown 预览入口。
+- 支持三种触发方式：扩展 Popup、页面右键菜单、文档页浮动按钮。
+- 尽量保留文档结构，包括标题、段落、代码块、引用、列表、任务列表、表格、图片、iframe、行内样式、行内数学公式和部分 ISV 块。
+- 转换过程在用户浏览器本地完成，不把文档内容上传到项目自有服务。
 
 ### 2.2 技术目标
 
-- 核心转换逻辑与扩展 UI 在源码层解耦，便于维护和局部演进。
-- 运行时依赖浏览器扩展权限，但转换逻辑尽量只依赖飞书页面暴露的运行时对象。
-- 支持 Manifest V3 的 Chrome 扩展运行模型，同时保留 Firefox 构建适配入口。
-- 使用 AST 作为中间表示，降低 Markdown 字符串拼接带来的格式风险。
+- 扩展编排逻辑与核心转换逻辑分离。
+- 使用本地维护的 Lark block 类型和 mdast 作为转换中间表示。
+- 运行时适配层保持轻量，只访问 `window.PageMain`、`window.editor` 和页面提供的 block 定位 API。
+- 在单 package 内同时构建 background、content、注入脚本和 Vue Popup。
+- 构建时根据 package version 生成最终扩展 manifest。
 
 ### 2.3 非目标
 
-- 不实现独立后端服务，转换过程在浏览器本地完成。
-- 不支持旧版飞书 Doc 1.0 页面转换，当前只支持 Docx。
-- 不保证覆盖所有飞书私有块类型，无法识别或不稳定的块会被跳过或降级处理。
+- 不保证覆盖所有飞书/Lark 私有 block 类型。
+- 不支持旧版飞书 Doc 1.0 页面转换，只做识别和拒绝。
 
-## 3. 总体架构
+## 3. 仓库结构
+
+```text
+.
+├── package.json
+├── pnpm-workspace.yaml
+├── turbo.json
+├── eslint.config.js
+├── tsconfig.json
+├── docs/
+│   └── architecture-design.md
+└── apps/
+    └── chrome-extension/
+        ├── manifest.json
+        ├── package.json
+        ├── popup.html
+        ├── scripts/
+        │   └── cli.ts
+        ├── src/
+        │   ├── background.ts
+        │   ├── content.ts
+        │   ├── core/
+        │   ├── pages/
+        │   └── scripts/
+        ├── images/
+        ├── public/
+        ├── design/
+        ├── tsconfig*.json
+        ├── tsdown.config.ts
+        └── vite.config.ts
+```
+
+| 区域 | 路径 | 职责 |
+| --- | --- | --- |
+| 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 工作区脚本、依赖 catalog、Turborepo 任务 |
+| 扩展应用 | `apps/chrome-extension` | Manifest V3 扩展包和所有运行时代码、构建代码 |
+| Popup UI | `src/pages/popup`, `popup.html` | Vue Popup 命令菜单和主题初始化 |
+| 扩展脚本 | `src/background.ts`, `src/content.ts` | MV3 background service worker 和 content script |
+| 注入脚本 | `src/scripts/*.ts` | 注入到页面 MAIN world 执行的功能脚本 |
+| 转换核心 | `src/core` | Lark 运行时适配、block 类型、Transformer、Markdown 序列化、mention/table 后处理 |
+| 构建工具 | `scripts/cli.ts`, `tsdown.config.ts`, `vite.config.ts` | 扩展脚本、页面、资源和 manifest 的构建流程 |
+
+## 4. 总体架构
 
 ```mermaid
 flowchart LR
-  User["用户"] --> Popup["Popup 菜单"]
+  User["用户"] --> Popup["Popup 命令"]
   User --> ContextMenu["右键菜单"]
-  User --> FloatingButtons["页面浮动按钮"]
+  User --> FloatingButton["页面浮动按钮"]
 
   Popup --> Background["MV3 Background Service Worker"]
   ContextMenu --> Background
-  FloatingButtons --> Background
+  FloatingButton --> Background
 
-  Background --> InjectedScripts["MAIN world 注入脚本<br/>view"]
-  InjectedScripts --> LarkRuntime["飞书页面运行时<br/>PageMain/editor"]
-  InjectedScripts --> CoreModule["src/core<br/>Docx -> mdast -> Markdown"]
-  InjectedScripts --> Output["预览窗口"]
-  Content["Content Script"] --> FloatingButtons
+  Background --> Injected["MAIN world 注入脚本"]
+  Content["Content Script"] --> FloatingButton
+
+  Injected --> Runtime["飞书/Lark 页面运行时"]
+  Injected --> Core["转换核心"]
+  Runtime --> Core
+  Core --> Preview["Markdown 预览窗口"]
 ```
 
-系统由四个主要层次组成：
+系统运行时分为四层：
 
-1. 扩展入口层：`manifest.json` 声明权限、页面、content script 和 background service worker。
-2. 用户交互层：Popup、右键菜单、飞书页面浮动按钮。
-3. 执行编排层：Background 根据用户动作向当前 Tab 注入具体功能脚本。
-4. 转换核心层：`apps/chrome-extension/src/core` 从飞书页面运行时读取 Docx block tree，转换为 mdast，执行 mention/table 后处理，再序列化为 Markdown。
+1. 扩展声明层：`manifest.json` 声明权限、匹配域名、background worker、Popup 和 content script。
+2. 用户交互层：Popup、右键菜单和浮动按钮都会产生同一个动作 flag。
+3. 执行编排层：background worker 校验动作 flag，并向当前 Tab 的 MAIN world 注入对应脚本。
+4. 转换核心层：注入脚本使用 `src/core` 读取页面运行时、构建 mdast、执行后处理、序列化 Markdown 并打开预览窗口。
 
-## 4. 单包模块划分
+## 5. 浏览器扩展运行时
 
-| 模块 | 路径 | 职责 |
-| --- | --- | --- |
-| 根工作区 | `package.json`, `pnpm-workspace.yaml`, `turbo.json` | 统一脚本、依赖目录、Turborepo 任务缓存 |
-| Chrome Extension package | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
-| Core 转换模块 | `apps/chrome-extension/src/core` | 飞书运行时适配、Docx block 类型模型、Docx block → mdast 转换、Markdown 序列化、mention 解析、表格 HTML 后处理、扩展消息枚举 |
-| TS 配置 | `apps/chrome-extension/tsconfig*.json`, 根 `tsconfig.json` | 应用与根工具脚本的 TypeScript 配置 |
-| 版本变更 | `.changeset` | 扩展 package 发布变更记录 |
+### 5.1 Manifest
 
-源码依赖方向保持为入口层依赖内部模块：
+源码：`apps/chrome-extension/manifest.json`
 
-```mermaid
-flowchart TD
-  Extension["扩展入口与页面"] --> Core["src/core"]
-```
+当前源码 manifest 使用 Manifest V3，定义了：
 
-## 5. 浏览器扩展架构
+- 扩展名称：`Feishu Doc2Md`。
+- Popup 入口：`pages/popup.html`。
+- Background worker：`bundles/background.js`，类型为 `module`。
+- Content script：`bundles/content.js`，在 `document_end` 注入。
+- 权限：`contextMenus`、`scripting`。
+- host permissions 和 content script matches：
+  - `https://*.feishu.cn/*`
+  - `https://*.feishu.net/*`
+  - `https://*.larksuite.com/*`
+  - `https://*.feishu-pre.net/*`
+  - `https://*.larkoffice.com/*`
+  - `https://*.larkenterprise.com/*`
 
-### 5.1 Manifest 与权限
-
-`apps/chrome-extension/manifest.json` 使用 Manifest V3：
-
-- `action.default_popup` 指向 `pages/popup.html`。
-- `background.service_worker` 指向 `bundles/background.js`。
-- `content_scripts` 在飞书/Lark 相关域名下加载 `bundles/content.js`。
-- 权限包括 `contextMenus`、`scripting`。
-- host permissions 限定在 `feishu.cn`、`feishu.net`、`larksuite.com`、`feishu-pre.net`、`larkoffice.com`、`larkenterprise.com` 等域名。
+构建流程会把源码 manifest 复制到 `dist/manifest.json`，再从 `apps/chrome-extension/package.json` 写入 `version`。
 
 ### 5.2 Background Service Worker
 
-入口：`apps/chrome-extension/src/background.ts`
+源码：`apps/chrome-extension/src/background.ts`
 
 主要职责：
 
-- 在扩展安装时注册“查看 Markdown”右键菜单。
-- 接收右键菜单点击事件，根据菜单 ID 注入对应脚本。
-- 接收 Popup 或页面浮动按钮发来的 `chrome.runtime.sendMessage`，查询当前激活 Tab 并注入对应脚本。
-- 通过 `chrome.scripting.executeScript` 把功能脚本注入到 `world: 'MAIN'`，让脚本可以访问飞书页面暴露在主世界的运行时对象。
+- 扩展安装时注册 `View as Markdown` 右键菜单。
+- 维护动作 flag 到注入脚本文件的映射。
+- 处理右键菜单点击。
+- 处理 Popup 和 content script 发送的 runtime message。
+- 收到 runtime message 后查询当前窗口的 active tab。
+- 调用 `chrome.scripting.executeScript` 注入脚本。
+- 使用 `world: 'MAIN'`，让注入脚本能够访问页面自己的全局对象，例如 `window.PageMain`。
+
+当前只有一个可执行动作：
+
+| Flag | 注入脚本 |
+| --- | --- |
+| `view_docx_as_markdown` | `bundles/scripts/view-lark-docx-as-markdown.js` |
 
 ### 5.3 Content Script
 
-入口：`apps/chrome-extension/src/content.ts`
+源码：`apps/chrome-extension/src/content.ts`
+
+Content script 只负责在文档页面添加浮动按钮，不读取文档数据，也不做转换。
 
 主要职责：
 
-- 在飞书 Docx 页面上渲染固定定位的预览按钮。
-- 监听飞书页面 DOM 变化，等待页面右侧帮助/评论按钮等锚点出现后计算按钮位置。
-- 监听 SPA 路由切换，清理旧按钮并重新初始化。
-- 不负责设置读取；转换脚本使用固定内置转换策略。
+- 等待页面出现可用于定位的 UI 锚点。
+- 在飞书/Lark 页面控制区旁渲染一个圆形 `View` 按钮。
+- 点击按钮时发送 `{ flag: Flag.ExecuteViewScript }` 给 background worker。
+- 当飞书/Lark 页面按钮 class 变化时重新计算浮动按钮位置。
+- 通过比较 `location.pathname` 观察 SPA 路由切换。
+- 路由切换后清理旧按钮和 observer，再重新初始化。
+
+浮动按钮使用页面 CSS 变量进行样式适配，并使用 `data-CDC-button-type` 属性。`CDC` 是从原项目名称遗留的内部命名，不影响功能。
 
 ### 5.4 Popup 页面
 
-入口：`apps/chrome-extension/src/pages/popup/popup.vue`
+相关文件：
 
-Popup 是轻量命令菜单，仅包含：
+- `apps/chrome-extension/popup.html`
+- `apps/chrome-extension/src/pages/popup/main.ts`
+- `apps/chrome-extension/src/pages/popup/popup.vue`
+- `apps/chrome-extension/src/pages/shared/shared.css`
+- `apps/chrome-extension/src/pages/popup/main.css`
 
-- 查看 Markdown
+Popup 是一个很小的 Vue 命令菜单，目前只有一个 `View as Markdown` 按钮。生产环境中点击按钮会发送与浮动按钮相同的 runtime message；开发环境中只输出调试日志，不调用 Chrome runtime API。
 
-在生产环境中，操作项通过 `chrome.runtime.sendMessage({ flag })` 交给 background 注入脚本；在开发环境中输出调试日志。
+Popup 主题是本地逻辑：
 
-### 5.5 固定策略
+- `main.ts` 监听 `prefers-color-scheme: dark`。
+- 根据系统深色模式切换 `document.documentElement` 上的 `dark` class。
+- `shared.css` 定义 Tailwind v4 light/dark 主题 token。
 
-项目不再提供 Options 页面，也不再从 `chrome.storage.sync` 读取设置。转换流程直接内联固定策略，不再保留设置模型。
+当前没有 Options 页面，也没有基于 `chrome.storage` 的设置模型。
 
-## 6. 运行时通信设计
-
-### 6.1 用户动作到脚本注入
+## 6. 运行时通信
 
 ```mermaid
 sequenceDiagram
   participant U as 用户
-  participant UI as Popup/右键菜单/浮动按钮
-  participant BG as Background
-  participant Tab as 当前飞书 Tab
+  participant UI as Popup / 右键菜单 / 浮动按钮
+  participant BG as Background worker
+  participant Tab as 当前文档 Tab
   participant Main as MAIN world 脚本
+  participant PM as window.PageMain
 
-  U->>UI: 触发预览
+  U->>UI: 触发 View as Markdown
   UI->>BG: 发送 flag 或 context menu id
-  BG->>BG: 查询当前 active tab
+  BG->>BG: 校验 flag
   BG->>Tab: chrome.scripting.executeScript
-  Tab->>Main: 执行 view 脚本
-  Main->>Main: 校验页面并转换 Markdown
+  Tab->>Main: 执行 view-lark-docx-as-markdown.js
+  Main->>PM: 读取 root block / 定位 mention block
+  Main->>Main: 转换、后处理、序列化
+  Main->>Main: window.open 预览窗口
 ```
 
-### 6.2 固定策略
+关键边界：
 
-MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。预览脚本直接执行固定转换流程，避免引入 `storage` 权限、跨 world 设置协议和设置分支。
+- Popup 和 content script 运行在扩展/content-script 上下文。
+- 转换脚本运行在页面 MAIN world。
+- 转换脚本可以访问页面全局对象，但不应依赖扩展上下文专属 API。
 
-## 7. Markdown 转换架构
+## 7. 转换核心
 
-核心入口：`apps/chrome-extension/src/core/docx.ts`
+核心导出入口：`apps/chrome-extension/src/core/index.ts`
 
-核心转换模块按职责拆分：
+当前导出内容包括：
 
-| 模块 | 路径 | 职责 |
-| --- | --- | --- |
-| Docx 门面 | `src/core/docx.ts` | 封装页面运行时、加载状态判断、Transformer 调用和 Markdown 序列化入口 |
-| 飞书 block 类型 | `src/core/lark.ts` | 维护 Lark Docx block、operation、caption、table、ISV 等结构类型 |
-| mdast 类型扩展 | `src/core/mdast-extensions.ts` | 为 table/list/mention 后处理补充 mdast `data` 类型 |
-| Transformer | `src/core/transformer.ts` | 维护转换状态，把 block tree 转换成 mdast，并收集 mention/table 后处理任务 |
-| Inline 转换 | `src/core/inline.ts` | 将飞书 operation/attribute 转为 mdast phrasing content |
-| 列表归并 | `src/core/list.ts` | 将连续 listItem 合并成 Markdown list |
-| 嵌入内容转换 | `src/core/embeds.ts` | 转换 iframe、图片 alt、ISV Mermaid timeline 等嵌入内容 |
-| Markdown 序列化 | `src/core/markdown.ts` | 统一配置 `mdast-util-to-markdown`、GFM 和 math 扩展 |
-| 表格 HTML 后处理 | `src/core/table-html.ts` | 将 table mdast 统一转换为 HTML，并处理 span/colgroup |
+- runtime helpers。
+- `Docx` 门面类和 `docx` 单例。
+- mention 后处理。
+- table 转 HTML 后处理。
+- mdast/hast 类型。
 
-### 7.1 页面运行时适配
+### 7.1 运行时适配
 
-`apps/chrome-extension/src/core/runtime.ts` 从当前页面读取飞书运行时对象：
+源码：`apps/chrome-extension/src/core/runtime.ts`
 
-- `window.PageMain`：Docx block tree、定位 block 的能力。
-- `window.editor`：用于判断旧版 Doc 页面。
+运行时适配层只暴露页面全局对象的最小 typed view：
 
-`Docx` 类对页面能力做统一封装：
+- `PageMain`：可选的 `window.PageMain` 引用。
+- `isDocx()`：`window.PageMain` 存在时认为是新版 Docx 页面。
+- `isDoc()`：`window.editor` 存在时认为是旧版 Doc 页面。
+- `PageMain.blockManager.rootBlockModel`：Docx 根 block tree。
+- `PageMain.locateBlockWithRecordIdImpl(recordId)`：页面提供的 block 定位能力，mention 解析会用到。
 
-- `isDocx`：当前页面是否是新版 Docx。
-- `isDoc`：是否是旧版 Doc。
-- `rootBlock`：读取 `PageMain.blockManager.rootBlockModel`。
-- `isReady`：递归判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
-- `intoMarkdownAST`：调用 `Transformer` 把飞书 block tree 转换成 mdast。
-- `Docx.stringify`：委托 `markdown.ts` 输出 Markdown，并启用 GFM 删除线、任务列表和数学表达式扩展。
+### 7.2 Docx 门面
 
-### 7.2 Transformer
+源码：`apps/chrome-extension/src/core/docx.ts`
 
-`apps/chrome-extension/src/core/transformer.ts` 负责把飞书 block 转换成 mdast 节点。它维护以下转换过程状态：
+`Docx` 负责收口运行时检测和转换入口：
 
-- `parent`：当前 mdast 父节点，用于决定图片是否包裹 paragraph、表格替换位置等。
-- `mentionUsers`：待二次解析的用户 mention。
-- `tableWithParents`：待统一转 HTML 的 table 节点及其父节点。
+- `isDocx`：判断当前页面是否为支持的 Docx 页面。
+- `isDoc`：当不是 Docx 时，判断是否为旧版 Doc 页面。
+- `rootBlock`：读取 `PageMain` 中的 root block。
+- `isReady()`：递归检查 block 是否仍为 `pending`，以及 synced reference 是否加载完成。
+- `intoMarkdownAST()`：创建 `Transformer`，把 root block 转为 mdast。
+- `Docx.stringify(root, options)`：通过 `markdown.ts` 序列化 Markdown。
+- `Docx.locateBlockWithRecordId(recordId)`：委托页面 block locator，并保护异常。
+
+当 root block 不存在时，转换会返回空 mdast root。
+
+### 7.3 Lark Block 类型模型
+
+源码：`apps/chrome-extension/src/core/lark.ts`
+
+该文件维护转换器当前需要的 Feishu/Lark Docx block 子集：
+
+- 通用 block 字段：`id`、`type`、`snapshot`、`zoneState`、`children`、可选 `record`。
+- 行内文本 operation 和 attributes。
+- 结构块：page、heading、text、divider、code、quote、callout、list、todo、table、grid。
+- 媒体和嵌入块：image、iframe、ISV、whiteboard、diagram、view、file。
+- 同步块：`SYNCED_SOURCE`、`SYNCED_REFERENCE`。
+- 明确建模但当前跳过的 unsupported block union。
+
+这个类型文件是转换器内部模型，不试图成为完整的飞书/Lark SDK。
+
+### 7.4 Transformer
+
+源码：`apps/chrome-extension/src/core/transformer.ts`
+
+`Transformer` 把 Docx block tree 转为 mdast，同时收集需要二次处理的信息。
+
+内部状态：
+
+- `parent`：当前 mdast 父节点，用于图片包裹、表格替换等上下文判断。
+- `mentionUsers`：需要在 AST 构建后从 DOM 解析的 mention 占位节点。
+- `tableWithParents`：后续要替换为 HTML 的 table 节点及其父节点。
 - `sequences`：标题自动编号状态。
 
-主要 block 映射：
+子节点转换前，`flattenChildren()` 会先做结构归一化：
 
-| 飞书 BlockType | Markdown/mdast 输出 |
+- `GRID` 通过列 children 扁平化。
+- text container 的子文本块会提升到父文本块后方。
+- `SYNCED_SOURCE` 直接展开 children。
+- `SYNCED_REFERENCE` 优先使用 `innerBlockManager.rootBlockModel.children`。
+
+Block 映射：
+
+| 飞书/Lark block | mdast / Markdown 输出 |
 | --- | --- |
 | `PAGE` | `root` |
-| `HEADING1` 至 `HEADING6` | `heading`，保留深度和自动编号 |
-| `HEADING7` 至 `HEADING9`, `TEXT` | `paragraph` |
-| `CODE` | fenced code block |
-| `BULLET`, `ORDERED`, `TODO` | `listItem`，随后合并为 `list` |
+| `DIVIDER` | `thematicBreak` |
+| `HEADING1` 至 `HEADING6` | `heading`，支持已有自动编号逻辑 |
+| `HEADING7` 至 `HEADING9` | `paragraph` |
+| `TEXT` | `paragraph` |
+| `CODE` | fenced `code`，语言名转小写 |
 | `QUOTE_CONTAINER`, `CALLOUT` | `blockquote` |
-| `DIVIDER` | thematic break |
-| `IMAGE` | `image`，URL 使用图片 token |
-| `WHITEBOARD`, `DIAGRAM`, `FILE` | 跳过 |
-| `TABLE` | `table`，记录列宽、合并单元格和异常子节点 |
-| `GRID` | 扁平化为子块 |
-| `IFRAME` | HTML iframe |
-| `ISV` 文本绘图/时间线 | Mermaid code block |
-| 不支持块 | 跳过或降级 |
+| `BULLET` | `listItem`，之后合并为无序 `list` |
+| `ORDERED` | 带序号数据的 `listItem`，之后合并为有序 `list` |
+| `TODO` | 带 checked 状态的 `listItem`，之后合并为任务列表 |
+| `IMAGE` | `image`，非 table cell 内会包一层 paragraph |
+| `TABLE` | mdast `table`，后续替换为 HTML |
+| `GRID` | mdast `table`，后续替换为带百分比宽度的 HTML |
+| `CELL`, `GRID_COLUMN` | `tableCell` |
+| `IFRAME` | raw HTML iframe |
+| `ISV` 文本绘图 | Mermaid `code` block |
+| `ISV` 时间线 | 生成 Mermaid timeline `code` block |
+| `WHITEBOARD`, `DIAGRAM`, `VIEW`, `FILE` | 跳过 |
+| 其他 unsupported blocks | 跳过 |
 
-### 7.3 Inline 内容转换
+root、blockquote、list item 的 children 会过滤成 mdast 允许的内容。连续 list item 由 `list.ts` 合并为真正的 mdast list。
 
-飞书文本使用 operation/attribute 结构，由 `apps/chrome-extension/src/core/inline.ts` 转换。转换时会处理：
+### 7.5 行内转换
+
+源码：`apps/chrome-extension/src/core/inline.ts`
+
+行内转换读取 `block.zoneState.content.ops`。
+
+当前支持：
 
 - 普通文本。
-- 加粗、斜体、删除线、下划线。
-- 行内代码。
-- 数学公式。
-- 链接。
-- 文本高亮，始终保留为 HTML。
-- mention 用户，先转换为占位 inlineCode，后续定位页面 DOM 解析为 `@用户名`。
-- mention doc 等 inline component。
+- `italic` -> `emphasis`。
+- `bold` -> `strong`。
+- `strikethrough` -> `delete`。
+- `link` -> 解码 URL 后生成 `link`。
+- `inlineCode` -> `inlineCode`。
+- `equation` -> `inlineMath`。
+- `underline` -> raw HTML `<u>`。
+- `textHighlight` / `textHighlightBackground` -> raw HTML `<span style="...">`。
+- `inline-component` mention doc -> 链接到引用文档。
+- `inline-component` user -> 临时 `inlineCode` 占位节点，携带 `mentionUserId`。
 
-### 7.4 表格与 Grid 后处理
+带 `fixEnter` 的 operation 会被忽略。必要时会裁掉尾部换行，并合并相邻兼容的 phrasing 节点，减少 Markdown 噪音。
 
-核心层在 `apps/chrome-extension/src/core/table-html.ts` 执行固定后处理：
+### 7.6 列表合并
 
-- Grid 在 Transformer 中直接扁平化为子块。
-- 所有 table 统一转 HTML。
-- 包含非 phrasing 内容的复杂表格会先用 `invalidChildren` 替换单元格内容，再转 HTML。
-- 表格转 HTML 时会处理 `rowSpan`、`colSpan` 和 `colgroup`，避免 GFM 表格无法表达复杂结构。
+源码：`apps/chrome-extension/src/core/list.ts`
 
+Transformer 初始输出 list item，`mergeListItems()` 再把相邻且兼容的 list item 合并为 mdast `list`。
 
-## 8. 核心业务流程
+规则：
 
-### 8.1 预览 Markdown
+- Todo item 只与 todo item 合并。
+- Bullet item 只与 bullet item 合并。
+- Ordered item 在序号相邻或使用 auto 编号时合并。
+- 数字序号会写入 Markdown list 的 `start`。
 
-入口：`apps/chrome-extension/src/scripts/view-lark-docx-as-markdown.ts`
+### 7.7 嵌入内容
 
-流程：
+源码：`apps/chrome-extension/src/core/embeds.ts`
 
-1. 校验当前页面是 Docx，且文档内容已加载完成。
-2. 调用 `docx.intoMarkdownAST` 生成 mdast，过程中固定保留文本高亮并扁平化 Grid。
-3. 解析 mention 用户：定位所属 block 后立即读取当前 DOM，不再做超时轮询等待。
-4. 将所有 table 转 HTML。
-5. `Docx.stringify(root)` 输出 Markdown。
-6. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
-7. 失败信息统一写入 `console.error`。
+嵌入辅助函数包括：
 
-## 9. 资源访问设计
+- `iframeToHtml()`：URL 存在时生成带 sandbox 的 `<iframe>` HTML；缺省高度为 `400`。
+- `evaluateAlt()`：从图片 caption 中提取 alt 文本。
+- `generateMermaidTimeline()`：把支持的 ISV timeline items 转为 Mermaid timeline 语法。
 
-### 9.1 图片
+图片 URL 当前直接使用页面提供的 image token。
 
-图片 block 在转换为 mdast `image` 时直接把飞书图片 token 写入 `url`，不再生成外链，也不再进行额外资源生效请求。
+### 7.8 Mention 解析
 
-白板、图表和附件不再在预览流程中转换为本地资源或访问链接。
+源码：`apps/chrome-extension/src/core/mentions.ts`
 
-## 10. 固定策略与主题
+用户 mention 在 mdast 构建完成后解析，因为展示名称需要从当前页面 DOM 中读取：
 
-### 10.1 转换策略
+1. 行内转换生成带 `mentionUserId` 的 `inlineCode` 占位节点。
+2. Transformer 记录该 mention 所属的 parent block record ID。
+3. `transformMentionUsers()` 调用 `Docx.locateBlockWithRecordId()` 让页面定位到对应 block。
+4. 在页面中查找 token 匹配的 `a[data-token]` 元素。
+5. 找到后把占位节点值改为 `@${innerText}`。
 
-设置模型已删除。当前固定策略为：
+如果 block 无法定位或 DOM 元素不存在，占位节点会保持原状。
 
-- 主题跟随系统深浅色。
-- 所有表格转 HTML。
-- Grid 子块扁平化。
-- 文本高亮始终保留。
+### 7.9 表格 HTML 后处理
 
-### 10.2 主题
+源码：`apps/chrome-extension/src/core/table-html.ts`
 
-Popup 直接根据 `prefers-color-scheme` 初始化主题并监听系统主题变化。主题不再保存到 storage。
+当前所有 table 都会在 mdast 构建后转换为 HTML。
 
-## 11. 构建架构
+原因：
 
-扩展构建入口：`apps/chrome-extension/scripts/cli.ts`
+- 飞书/Lark 表格可能包含 row/column span。
+- 部分单元格包含无法用 GFM table phrasing content 表达的 block 内容。
+- Grid 需要保留列宽比例。
 
-构建过程分为四步：
+处理流程：
 
-1. `buildScripts`：使用 tsdown 构建 background、content 和功能脚本。
-2. `buildPages`：使用 rolldown-vite 构建 Popup Vue 页面。
-3. `copyResources`：复制 `images`、`manifest.json`。
-4. `genManifest`：写入 package version，并在 Firefox target 下把 MV3 service worker background 转为 Firefox 需要的 scripts 形式。
+1. Transformer 记录每个 mdast `table` 及其 parent。
+2. `replaceInvalidTableChildren()` 恢复被标记为 `invalidChildren` 的复杂单元格内容。
+3. `processTableSpans()` 删除被 span 覆盖的冗余 cell，并写入 `rowSpan` / `colSpan` HTML 属性。
+4. 使用 `mdast-util-to-hast` 把 table 转为 hast。
+5. 如果存在列宽，插入 `colgroup`。
+6. 使用 `hast-util-to-html` 序列化。
+7. 用 raw HTML node 替换父节点中的原始 mdast table。
 
-`apps/chrome-extension/tsdown.config.ts` 的关键策略：
+### 7.10 Markdown 序列化
 
-- `background.ts` 构建为 ESM，输出到 `dist/bundles/background.js`。
-- `content.ts` 和 `src/scripts/*.ts` 构建为 IIFE，输出到 `dist/bundles/`。
-- `platform: 'browser'`，`target: es2024`。
-- release 模式开启 minify 和 Babel runtime。
-- 本地 core 模块通过源码相对路径参与同一次脚本构建，不再依赖旧多包架构的 `dev` condition。
+源码：`apps/chrome-extension/src/core/markdown.ts`
 
-`apps/chrome-extension/vite.config.ts` 的关键策略：
+Markdown 序列化使用 `mdast-util-to-markdown`，并启用：
 
-- `base: '/pages/'`。
-- 单入口构建 `popup.html`。
-- 页面产物输出到 `dist/pages`。
-- 使用 Vue 和 Tailwind Vite 插件。
+- GFM strikethrough。
+- GFM task list item。
+- math 序列化，`singleDollarTextMath: false`。
 
-Turborepo 根任务：
+额外序列化选项可以通过 `Docx.stringify()` 透传。
 
-- `build` 直接构建扩展 package，输出缓存 `dist/**`。
-- `type-check` 直接执行扩展 package 的类型检查。
+## 8. 预览流程
 
-## 12. 安全与隐私设计
+入口脚本：`apps/chrome-extension/src/scripts/view-lark-docx-as-markdown.ts`
 
-- 所有转换在浏览器本地执行，不引入项目自有后端。
-- host permissions 限定在飞书/Lark 相关域名，减少扩展可访问范围。
-- 文档调试输出应避免包含私有文档内容、token、cookie。
+```mermaid
+flowchart TD
+  Start["注入脚本启动"] --> OldDoc{"旧版 Doc 页面?"}
+  OldDoc -->|是| RejectOld["记录不支持旧版 Doc"]
+  OldDoc -->|否| DocxPage{"Docx 页面?"}
+  DocxPage -->|否| Reject["记录不支持当前页面"]
+  DocxPage -->|是| Ready{"所有 block 已就绪?"}
+  Ready -->|否| Loading["记录内容仍在加载"]
+  Ready -->|是| Transform["Transformer 生成 mdast"]
+  Transform --> Mentions["从页面 DOM 解析 mention 用户"]
+  Mentions --> Tables["表格替换为 HTML"]
+  Tables --> Stringify["序列化 Markdown"]
+  Stringify --> Open["window.open 预览窗口"]
+  Open --> Render["写入样式、标题和 pre.textContent"]
+```
 
-## 13. 主要架构风险
+错误处理保持简单：当前不会创建用户可见错误 UI，只通过 `console.error` 输出带 `[Feishu Doc2Md]` 前缀的错误信息。
 
-| 风险 | 影响 | 应对建议 |
+预览窗口把 Markdown 作为纯文本写入 `<pre>`，使用 `textContent`，因此生成的 Markdown 不会在预览窗口中被当作 HTML 执行。
+
+## 9. 构建架构
+
+### 9.1 根脚本
+
+根 `package.json` 暴露：
+
+| Script | 说明 |
+| --- | --- |
+| `pnpm run watch` | `turbo watch build` |
+| `pnpm run build` | `turbo run build` |
+| `pnpm run type-check` | `turbo run type-check` |
+| `pnpm run lint` | `eslint .` |
+| `pnpm run format-check` | Prettier 检查 |
+| `pnpm run format` | Prettier 写入 |
+| `pnpm run prepare` | Husky 初始化 |
+
+根 package 为 private，名称是 `feishu-doc2md`。扩展 package 是 `@feishu-doc2md/chrome-extension`，版本号为 `1.0.0`。
+
+### 9.2 Turborepo
+
+源码：`turbo.json`
+
+任务：
+
+- `build`：缓存 `dist/**`，并把源码、构建脚本、图标、manifest、popup HTML、TS 配置和 workspace lock/config 作为输入。
+- `type-check`：委托 package 内部的类型检查任务。
+
+当前 Turborepo 作用域里只有 `apps/chrome-extension`。
+
+### 9.3 扩展构建 CLI
+
+源码：`apps/chrome-extension/scripts/cli.ts`
+
+扩展 package 的 `build` 脚本执行：
+
+```shell
+node --experimental-strip-types ./scripts/cli.ts build
+```
+
+构建步骤：
+
+1. `buildScripts()`：使用 tsdown 构建 background、content 和注入脚本。
+2. `buildPages()`：使用 rolldown-vite 构建 Vue Popup 页面。
+3. `copyResources()`：复制 `images/` 和 `manifest.json` 到 `dist/`。
+4. `genManifest()`：读取 `dist/manifest.json`，写入 package version；如果 target 是 Firefox，则把 service worker background 改写为 Firefox 需要的 scripts 形式。
+5. 仅 Firefox target 会额外执行 `web-ext lint --source-dir dist`。
+
+CLI 参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--watch`, `-w` | 监听源码脚本和页面 |
+| `--release`, `-r` | release 模式，输出更紧凑、启用优化 |
+| `--target <target>` | 默认为 `chromium`，也支持 `firefox` |
+
+### 9.4 脚本打包
+
+源码：`apps/chrome-extension/tsdown.config.ts`
+
+脚本产物：
+
+| Entry | Format | Output |
 | --- | --- | --- |
-| 依赖飞书页面私有运行时对象 | 飞书前端结构变更可能导致转换失效 | 为 `PageMain`、block schema、DOM selector 增加更明确的兼容层 |
-| 复杂表格与 Grid 无法完全用 GFM 表达 | Markdown 输出可能丢结构 | 继续使用固定 HTML 降级与 Grid 扁平化策略 |
-| 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 保持预览动作直接由用户触发，并在失败时写入 `console.error` |
+| `src/background.ts` | ESM | `dist/bundles/background.js` |
+| `src/content.ts` | IIFE | `dist/bundles/content.js` |
+| `src/scripts/*.ts` | IIFE | `dist/bundles/scripts/*.js` |
 
-## 14. 演进建议
+关键配置：
 
-1. 持续收敛页面运行时适配层：把 `window.PageMain` 和 DOM selector 集中到 `src/core/runtime.ts` 及相关 core 文件，降低飞书改版影响面。
-2. 继续拆分预览脚本中的页面校验、AST 转换、mention/table 后处理，让流程更容易复用。
-3. 完善图片 token URL 在不同飞书/Lark 域名下的可访问性验证。
-4. 完善浏览器兼容矩阵：持续验证 Chromium 与 Firefox target 的 manifest、background 和窗口打开行为差异。
+- browser platform。
+- ES2024 target。
+- `@` alias 指向 `src`。
+- package dependencies 通过 `noExternal` 打入 bundle。
+- 开发构建不 minify，release 构建 minify。
+
+### 9.5 Popup 页面打包
+
+源码：`apps/chrome-extension/vite.config.ts`
+
+Vite/Rolldown 配置：
+
+- base path：`/pages/`。
+- 插件：Vue、Tailwind CSS。
+- HTML 入口：`popup.html`。
+- 输出目录：`dist/pages`。
+- `@` alias 指向 `src`。
+- 非 release 模式下追加 `dev` resolve condition。
+
+### 9.6 TypeScript 边界
+
+扩展 package 使用多个 TypeScript project：
+
+| Config | Scope |
+| --- | --- |
+| `tsconfig.base.json` | 共享 strict compiler options |
+| `tsconfig.node.json` | 构建脚本和 bundler 配置 |
+| `tsconfig.extension.json` | Background/content scripts 和共享 core 类型 |
+| `tsconfig.web.json` | 注入脚本和共享 core 类型 |
+| `tsconfig.pages.json` | Vue 页面、DOM 和 Vite client 类型 |
+| `tsconfig.json` | package 级 composite reference root |
+
+根 `tsconfig.json` 只覆盖根级工具代码，例如 `eslint.config.js`。
+
+## 10. 依赖模型
+
+依赖版本集中在 `pnpm-workspace.yaml` 的 catalogs 中维护。
+
+主要依赖组：
+
+- `build`：`rolldown-vite`、`tsdown`。
+- `dev`：Vue/Vite/Tailwind/TypeScript 辅助包。
+- `lint`：ESLint、Prettier、Husky、lint-staged、typescript-eslint。
+- `markdown`：`mdast-util-to-markdown`。
+- `monorepo`：Turborepo。
+- `node`：构建期 Node 工具，例如 `execa`、`glob`。
+- `prod`：运行时转换和 UI 依赖。
+- `tools`：`vue-tsc`、`web-ext`。
+- `types`：共享类型包。
+
+仓库清理后不再包含 Changesets 依赖。
+
+## 11. 数据与隐私边界
+
+- 转换在用户浏览器当前文档页面内执行。
+- 项目不定义自有后端。
+- core 从 `window.PageMain` 读取文档结构。
+- mention 展示名在定位到所属 block 后从页面 DOM 读取。
+- 图片 URL 使用飞书/Lark image token 输出，项目自身不抓取也不上传图片。
+- 扩展只申请 manifest 中列出的文档域名权限。
+- 错误日志应避免加入私有文档内容，当前实现只输出通用错误信息。
+
+## 12. 当前限制
+
+- 转换器依赖 `window.PageMain`、block snapshot、DOM selector 等页面私有实现。
+- 不支持或不稳定的 block 类型会被跳过，而不是输出占位内容。
+- 表格统一转 raw HTML，比 GFM table 更保真，但在禁用 HTML 的 Markdown 渲染器中可移植性较弱。
+- mention 解析依赖 block 定位和可见 DOM anchor；如果 DOM 数据缺失，占位值会保持原样。
+- 预览窗口展示的是 Markdown 纯文本，不是渲染后的 Markdown 页面。
+- Firefox 支持通过构建阶段适配，但源码 manifest 仍以 Chromium MV3 形态为主。
+
+## 13. 演进建议
+
+后续可以考虑：
+
+1. 把页面 DOM selector 和运行时兼容检查进一步集中，降低飞书/Lark 页面改版影响。
+2. 替换内部遗留命名，例如 `data-CDC-button-type`。
+3. 为 `Transformer`、行内转换、列表合并、表格 HTML 替换和 mention fallback 增加 focused fixtures。
+4. 为不支持页面和内容未加载完成的情况增加用户可见反馈。
+5. 增加可选的渲染态 Markdown 预览，同时保留当前安全的纯文本预览。
+6. 持续验证 Firefox target 下 background 适配和 `window.open` 行为差异。

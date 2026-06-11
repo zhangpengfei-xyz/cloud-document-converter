@@ -18,9 +18,9 @@ const message = {
 
 const logError = (content: string, error?: unknown): void => {
   if (error === undefined) {
-    console.error(`[Cloud Document Converter] ${content}`)
+    console.error(`[Feishu Doc2Md] ${content}`)
   } else {
-    console.error(`[Cloud Document Converter] ${content}`, error)
+    console.error(`[Feishu Doc2Md] ${content}`, error)
   }
 }
 

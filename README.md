@@ -2,16 +2,14 @@
   <p align="center">
    <img width="150" height="150" src="apps/chrome-extension/design/logo.svg" alt="Logo">
   </p>
-	<h1 align="center"><b>Cloud Document Converter</b></h1>
+	<h1 align="center"><b>Feishu Doc2Md</b></h1>
 </p>
 
-Cloud Document Converter is a browser extension that previews Lark Doc as Markdown.
-
-**English** · [简体中文](./README_ZH.md)
+Feishu Doc2Md is a browser extension that previews Lark Doc as Markdown.
 
 # Install
 
-Install Cloud Document Converter from [Chrome Web Store](https://chromewebstore.google.com/detail/cloud-document-converter/ehkomhhcinhikfddnmklbloahaakploh), [Microsoft Edge Store](https://microsoftedge.microsoft.com/addons/detail/pcjebkebnehplnpkpnhipagefaffiopp), and [Firefox Add-ons Store](https://addons.mozilla.org/addon/cloud-document-converter).
+Install Feishu Doc2Md from [Chrome Web Store](https://chromewebstore.google.com/detail/feishu-doc2md/ehkomhhcinhikfddnmklbloahaakploh), [Microsoft Edge Store](https://microsoftedge.microsoft.com/addons/detail/pcjebkebnehplnpkpnhipagefaffiopp), and [Firefox Add-ons Store](https://addons.mozilla.org/addon/feishu-doc2md).
 
 # Features
 
@@ -68,12 +66,6 @@ Indent and Align: To be determined
 # Contribution
 
 If you are interested in fixing issues and contributing directly to the code base, please see the document [How to Contribute](./contributing.md).
-
-# Support me
-
-If you like this project, you are welcome to buy me a cup of coffee! Your support will help me continue to improve and maintain this project.
-
-[Buy me a coffee ☕](https://lujunji.vercel.app/about)
 
 # Disclaimer
 

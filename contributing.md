@@ -1,8 +1,8 @@
-# Contributing to Cloud Document Converter
+# Contributing to Feishu Doc2Md
 
-There are many ways to contribute to the Cloud Document Converter project: logging bugs, submitting pull requests, reporting issues, and creating suggestions.
+There are many ways to contribute to the Feishu Doc2Md project: logging bugs, submitting pull requests, reporting issues, and creating suggestions.
 
-After cloning and building the repo, check out the [issues list](https://github.com/whale4113/cloud-document-converter/issues). Issues labeled [`help wanted`](https://github.com/whale4113/cloud-document-converter/issues?q=is:issue+is:open+label:%22help+wanted%22+) are good issues to submit a PR for. Issues labeled [`good first issue`](https://github.com/whale4113/cloud-document-converter/issues?q=is:issue+is:open+label:%22good+first+issue%22+) are great candidates to pick up if you are in the code for the first time. If you are contributing significant changes, or if the issue is already assigned to a specific month milestone, please discuss with the assignee of the issue first before starting to work on the issue.
+After cloning and building the repo, check out the [issues list](https://github.com/zhangpengfei-xyz/feishu-doc2md/issues). Issues labeled [`help wanted`](https://github.com/zhangpengfei-xyz/feishu-doc2md/issues?q=is:issue+is:open+label:%22help+wanted%22+) are good issues to submit a PR for. Issues labeled [`good first issue`](https://github.com/zhangpengfei-xyz/feishu-doc2md/issues?q=is:issue+is:open+label:%22good+first+issue%22+) are great candidates to pick up if you are in the code for the first time. If you are contributing significant changes, or if the issue is already assigned to a specific month milestone, please discuss with the assignee of the issue first before starting to work on the issue.
 
 ## Prerequisites
 
@@ -12,12 +12,6 @@ You'll need the following tools:
 
 - [Git](https://git-scm.com/)
 - [Node.JS](https://nodejs.org/en/download/prebuilt-binaries), x64 or ARM64, version >= 22.6.0
-
-### Development container
-
-Alternatively, you can avoid local dependency installation as this repository includes a **Visual Studio Code [Dev Containers](https://code.visualstudio.com/docs/devcontainers/containers)** development container.
-
-For Dev Containers, use the **Dev Containers: Clone Repository in Container Volume** command which creates a Docker volume for better disk I/O on macOS and Windows.
 
 ## Development Setup
 

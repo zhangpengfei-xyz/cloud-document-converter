@@ -11,9 +11,6 @@ catalogs:
   build:
     rolldown-vite: 7.3.0
     tsdown: 0.16.1
-  cli:
-    '@changesets/changelog-github': 0.6.0
-    '@changesets/cli': 2.30.0
   dev:
     '@tailwindcss/vite': ^4.1.13
     '@vitejs/plugin-vue': ^6.0.1

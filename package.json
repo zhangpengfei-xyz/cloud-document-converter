@@ -1,5 +1,5 @@
 {
-  "name": "@dolphin/monorepo",
+  "name": "feishu-doc2md",
   "private": true,
   "description": "Convert lark cloud documents to markdown",
   "license": "MIT",
@@ -17,10 +17,8 @@
     "lark",
     "markdown"
   ],
-  "author": "Junji Lu",
+  "author": "ZhangPengfei",
   "devDependencies": {
-    "@changesets/changelog-github": "catalog:cli",
-    "@changesets/cli": "catalog:cli",
     "@eslint/js": "catalog:lint",
     "@types/node": "catalog:types",
     "eslint": "catalog:lint",
