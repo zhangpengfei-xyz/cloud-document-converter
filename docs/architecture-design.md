@@ -439,17 +439,17 @@ node --experimental-strip-types ./scripts/cli.ts build
 
 构建步骤：
 
-1. `buildScripts()`：使用 tsdown 构建 background 和注入脚本。
-2. `buildPages()`：使用 rolldown-vite 构建 Vue Popup 页面。
-3. `copyResources()`：复制 `images/` 和 `manifest.json` 到 `dist/`。
-4. `genManifest()`：读取 `dist/manifest.json`，写入 package version；如果 target 是 Firefox，则把 service worker background 改写为 Firefox 需要的 scripts 形式。
-5. 仅 Firefox target 会额外执行 `web-ext lint --source-dir dist`。
+1. `cleanDist()`：删除旧的 `dist/`，避免删除源码资源后旧产物残留。
+2. `buildScripts()`：使用 tsdown 构建 background 和注入脚本。
+3. `buildPages()`：使用 rolldown-vite 构建 Vue Popup 页面。
+4. `copyStaticAssets()`：复制 `images/` 到 `dist/images/`。
+5. `writeManifest()`：读取源码 `manifest.json`，写入 package version；如果 target 是 Firefox，则把 service worker background 改写为 Firefox 需要的 scripts 形式，并声明不收集数据。
+6. 仅 Firefox target 会额外对 `dist/` 执行 `web-ext lint`。
 
 CLI 参数：
 
 | 参数 | 说明 |
 | --- | --- |
-| `--watch`, `-w` | 监听源码脚本和页面 |
 | `--release`, `-r` | release 模式，输出更紧凑、启用优化 |
 | `--target <target>` | 默认为 `chromium`，也支持 `firefox` |
 

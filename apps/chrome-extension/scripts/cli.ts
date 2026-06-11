@@ -8,6 +8,13 @@ import { fileURLToPath } from 'node:url'
 import packageJson from '../package.json' with { type: 'json' }
 
 const dirname = fileURLToPath(new URL('./', import.meta.url))
+const extensionRoot = path.resolve(dirname, '..')
+const distPath = path.join(extensionRoot, 'dist')
+const manifestPath = path.join(extensionRoot, 'manifest.json')
+
+const browserTargets = ['chromium', 'firefox'] as const
+
+type BrowserTarget = (typeof browserTargets)[number]
 
 interface FirefoxBackgroundOptions {
   scripts: string[]
@@ -20,41 +27,45 @@ interface ChromeBackgroundOptions {
 }
 
 interface Manifest {
-  version: string
-  background: FirefoxBackgroundOptions | ChromeBackgroundOptions
-  browser_specific_settings: {
+  version?: string
+  background?: FirefoxBackgroundOptions | ChromeBackgroundOptions
+  browser_specific_settings?: {
     gecko: {
       id: string
+      data_collection_permissions?: {
+        required: ['none']
+      }
     }
   }
 }
 
-const readManifest = async (
-  manifestPath: string,
-): Promise<Partial<Manifest> | undefined> => {
-  try {
-    const fileContent = await fs.readFile(manifestPath, 'utf8')
-    const json = JSON.parse(fileContent) as Partial<Manifest>
-    return json
-  } catch (error) {
-    console.error(error)
-
-    return undefined
-  }
-}
-
-interface BuildOptions {
-  watch: boolean
+interface CliOptions {
   release: boolean
   target: string
 }
 
-const buildScripts = async (options: BuildOptions) => {
-  const srcPath = path.resolve(dirname, '../src')
+interface BuildOptions {
+  release: boolean
+  target: BrowserTarget
+}
 
+const isBrowserTarget = (target: string): target is BrowserTarget =>
+  browserTargets.includes(target as BrowserTarget)
+
+const readManifest = async (): Promise<Manifest> => {
+  const fileContent = await fs.readFile(manifestPath, 'utf8')
+  return JSON.parse(fileContent) as Manifest
+}
+
+const cleanDist = async () => {
+  await fs.rm(distPath, {
+    recursive: true,
+    force: true,
+  })
+}
+
+const buildScripts = async (options: BuildOptions) => {
   await tsdownBuild({
-    watch: options.watch ? [srcPath] : false,
-    ignoreWatch: ['dist/**', 'node_modules/**'],
     env: {
       DEV: !options.release,
     },
@@ -65,16 +76,13 @@ const buildPages = async (options: BuildOptions) => {
   const builder = await createBuilder(
     {
       mode: options.release ? 'release' : undefined,
-      build: {
-        watch: options.watch ? {} : undefined,
-      },
     },
     null,
   )
   await builder.buildApp()
 }
 
-const copyResources = async () => {
+const copyStaticAssets = async () => {
   interface CopyEntry {
     from: string
     to: string
@@ -82,12 +90,8 @@ const copyResources = async () => {
 
   const copyEntries: CopyEntry[] = [
     {
-      from: path.join(dirname, '../images'),
-      to: path.join(dirname, '../dist/images'),
-    },
-    {
-      from: path.join(dirname, '../manifest.json'),
-      to: path.join(dirname, '../dist/manifest.json'),
+      from: path.join(extensionRoot, 'images'),
+      to: path.join(distPath, 'images'),
     },
   ]
 
@@ -100,12 +104,8 @@ const copyResources = async () => {
   )
 }
 
-const genManifest = async (options: BuildOptions) => {
-  const manifest = await readManifest(path.join(dirname, '../manifest.json'))
-
-  if (!manifest) {
-    throw new Error('manifest.json not found')
-  }
+const writeManifest = async (options: BuildOptions) => {
+  const manifest = await readManifest()
 
   if (!manifest.background) {
     throw new Error('manifest.background not found')
@@ -120,6 +120,9 @@ const genManifest = async (options: BuildOptions) => {
     manifest.browser_specific_settings = {
       gecko: {
         id: 'zhangpengfei.xyz@outlook.com',
+        data_collection_permissions: {
+          required: ['none'],
+        },
       },
     }
   }
@@ -127,12 +130,46 @@ const genManifest = async (options: BuildOptions) => {
   manifest.version = packageJson.version
 
   await fs.writeFile(
-    path.join(dirname, '../dist/manifest.json'),
+    path.join(distPath, 'manifest.json'),
     JSON.stringify(manifest, null, options.release ? undefined : 2),
   )
 
   console.log(`\n--- build end ---\n`)
   console.log(`Extension version: ${manifest.version}`)
+}
+
+const lintFirefoxExtension = async () => {
+  for await (const line of execa('pnpm', [
+    'exec',
+    'web-ext',
+    'lint',
+    '--source-dir',
+    distPath,
+  ])) {
+    console.log(`web-ext lint: ${line}`)
+  }
+}
+
+const buildExtension = async (options: BuildOptions) => {
+  console.log('--- clean dist start ---\n')
+
+  await cleanDist()
+
+  console.log('--- build scripts start ---\n')
+
+  await buildScripts(options)
+
+  console.log('\n--- build pages start ---\n')
+
+  await buildPages(options)
+
+  await copyStaticAssets()
+
+  await writeManifest(options)
+
+  if (options.target === 'firefox') {
+    await lintFirefoxExtension()
+  }
 }
 
 const cli = cac('@feishu-doc2md/chrome-extension')
@@ -141,9 +178,6 @@ cli.help().version(packageJson.version)
 cli
   .command('build', 'build the browser extension', {
     ignoreOptionDefaultValue: false,
-  })
-  .option('-w, --watch', 'Watch mode', {
-    default: false,
   })
   .option(
     '-r, --release',
@@ -155,34 +189,15 @@ cli
   .option('--target <target>', 'Browser target, e.g "chromium", "firefox"', {
     default: 'chromium',
   })
-  .action(async (options: BuildOptions) => {
-    if (options.target !== 'chromium' && options.target !== 'firefox') {
+  .action(async (options: CliOptions) => {
+    if (!isBrowserTarget(options.target)) {
       throw new Error(`'Invalid target: ${options.target}'`)
     }
 
-    console.log('--- build scripts start ---\n')
-
-    await buildScripts(options)
-
-    console.log('\n--- build pages start ---\n')
-
-    await buildPages(options)
-
-    await copyResources()
-
-    await genManifest(options)
-
-    if (options.target === 'firefox') {
-      for await (const line of execa('pnpm', [
-        'exec',
-        'web-ext',
-        'lint',
-        '--source-dir',
-        'dist',
-      ])) {
-        console.log(`web-ext lint: ${line}`)
-      }
-    }
+    await buildExtension({
+      release: options.release,
+      target: options.target,
+    })
   })
 
 cli.parse(process.argv, { run: false })
