@@ -8,57 +8,6 @@ import {
   BlockType,
 } from '../lark'
 import { Second, waitForFunction } from '../shared'
-import {
-  SettingKey,
-  Table as TableSetting,
-  Grid as GridSetting,
-  type Settings,
-} from './settings'
-
-export const mapTableBySettings = (
-  tables: TableWithParent[],
-  settings: Pick<Settings, SettingKey.Table>,
-): TableWithParent[] => {
-  if (settings[SettingKey.Table] === TableSetting.Filtered) {
-    return []
-  }
-
-  return tables
-    .map(table => {
-      if (!table.inner.data?.invalid) return table
-
-      const tableIndex = table.parent?.children.findIndex(
-        child => child === table.inner,
-      )
-
-      if (tableIndex !== undefined && tableIndex !== -1) {
-        const inner = {
-          ...table.inner,
-          children: table.inner.children.map(row => ({
-            ...row,
-            children: row.children.map(cell => ({
-              ...cell,
-              children: cell.data?.invalidChildren ?? cell.children,
-            })),
-          })),
-        } as mdast.Table
-
-        table.parent?.children.splice(tableIndex, 1, inner)
-
-        return {
-          ...table,
-          inner,
-        }
-      }
-
-      return table
-    })
-    .filter(table =>
-      settings[SettingKey.Table] === TableSetting.NonPhrasingContentToHTML
-        ? table.inner.data?.invalid
-        : true,
-    )
-}
 
 /**
  * Filters out redundant cells that are covered by rowSpan/colSpan
@@ -115,19 +64,33 @@ const processTableSpans = (table: mdast.Table): void => {
   }
 }
 
-export const transformTableToHtml = (
-  tables: TableWithParent[],
-  options: { allowDangerousHtml: boolean } = { allowDangerousHtml: false },
-): void => {
+const replaceInvalidTableChildren = (table: mdast.Table): mdast.Table => {
+  if (!table.data?.invalid) return table
+
+  return {
+    ...table,
+    children: table.children.map(row => ({
+      ...row,
+      children: row.children.map(cell => ({
+        ...cell,
+        children: cell.data?.invalidChildren ?? cell.children,
+      })),
+    })),
+  } as mdast.Table
+}
+
+export const transformTablesToHtml = (tables: TableWithParent[]): void => {
   tables.forEach(table => {
     const tableIndex = table.parent?.children.findIndex(
       child => child === table.inner,
     )
     if (tableIndex !== undefined && tableIndex !== -1) {
-      processTableSpans(table.inner)
+      const inner = replaceInvalidTableChildren(table.inner)
 
-      const hastTable = toHast(table.inner, {
-        allowDangerousHtml: options.allowDangerousHtml,
+      processTableSpans(inner)
+
+      const hastTable = toHast(inner, {
+        allowDangerousHtml: true,
       })
 
       if (hastTable.type === 'element') {
@@ -136,12 +99,12 @@ export const transformTableToHtml = (
           tagName: 'colgroup',
           properties: {},
           children:
-            table.inner.data?.colWidths?.map(width => ({
+            inner.data?.colWidths?.map(width => ({
               type: 'element',
               tagName: 'col',
               properties: {
                 width:
-                  table.inner.data?.type === BlockType.GRID
+                  inner.data?.type === BlockType.GRID
                     ? `${width.toFixed(2)}%`
                     : width,
               },
@@ -157,87 +120,11 @@ export const transformTableToHtml = (
       table.parent?.children.splice(tableIndex, 1, {
         type: 'html',
         value: toHtml(hastTable, {
-          allowDangerousHtml: options.allowDangerousHtml,
+          allowDangerousHtml: true,
         }),
       })
     }
   })
-}
-
-export const transformGridToHtml = (
-  grids: TableWithParent[],
-  options: { allowDangerousHtml: boolean } = { allowDangerousHtml: false },
-): void => {
-  const normalizeWidthValue = (value: string): string => {
-    if (value.includes('%') || /[a-z]/i.test(value)) return value
-    const numeric = Number(value)
-    if (!Number.isFinite(numeric)) return value
-    return numeric <= 1 ? `${String(numeric * 100)}%` : `${String(numeric)}px`
-  }
-
-  const extractColumnWidths = (table: mdast.Table): string[] | null => {
-    const colWidths = (table.data as { colWidths?: number[] } | undefined)
-      ?.colWidths
-    if (!colWidths || colWidths.length === 0) return null
-    if (table.children.length === 0) return null
-    const columnCount = table.children[0].children.length
-    if (colWidths.length !== columnCount) return null
-    return colWidths.map(value => normalizeWidthValue(String(value)))
-  }
-
-  for (const grid of grids) {
-    const gridIndex = grid.parent?.children.findIndex(
-      child => child === grid.inner,
-    )
-    if (gridIndex !== undefined && gridIndex !== -1) {
-      const hast = toHast(
-        grid.inner.data?.invalid
-          ? ({
-              ...grid.inner,
-              children: grid.inner.children.map(row => ({
-                ...row,
-                children: row.children.map(cell => ({
-                  ...cell,
-                  children: cell.data?.invalidChildren ?? cell.children,
-                })),
-              })),
-            } as mdast.Table)
-          : grid.inner,
-        {
-          allowDangerousHtml: options.allowDangerousHtml,
-        },
-      )
-
-      const colWidths = extractColumnWidths(grid.inner)
-      if (colWidths) {
-        const colgroup: hast.Element = {
-          type: 'element',
-          tagName: 'colgroup',
-          properties: {},
-          children: colWidths.map(width => ({
-            type: 'element',
-            tagName: 'col',
-            properties: {
-              style: `width: ${width}`,
-            },
-            children: [],
-          })),
-        }
-        if (hast.type === 'element') {
-          hast.children = ([colgroup] as hast.ElementContent[]).concat(
-            hast.children,
-          )
-        }
-      }
-
-      grid.parent?.children.splice(gridIndex, 1, {
-        type: 'html',
-        value: toHtml(hast, {
-          allowDangerousHtml: options.allowDangerousHtml,
-        }),
-      })
-    }
-  }
 }
 
 export const transformMentionUsers = async (
@@ -270,30 +157,4 @@ export const transformMentionUsers = async (
       }
     }
   }
-}
-
-export const transformTableBySettings = (
-  tables: TableWithParent[],
-  settings: Pick<Settings, SettingKey.Table | SettingKey.Grid>,
-): void => {
-  if (settings[SettingKey.Grid] === GridSetting.ToHTML) {
-    transformGridToHtml(
-      tables.filter(item => item.inner.data?.type === BlockType.GRID),
-      {
-        allowDangerousHtml: true,
-      },
-    )
-  }
-
-  transformTableToHtml(
-    mapTableBySettings(
-      settings[SettingKey.Grid] === GridSetting.ToHTML
-        ? tables.filter(item => item.inner.data?.type !== BlockType.GRID)
-        : tables,
-      settings,
-    ),
-    {
-      allowDangerousHtml: true,
-    },
-  )
 }

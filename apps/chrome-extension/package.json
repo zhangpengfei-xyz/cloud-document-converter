@@ -31,7 +31,6 @@
     "hast-util-to-html": "catalog:prod",
     "lucide-vue-next": "catalog:prod",
     "mdast-util-gfm-strikethrough": "catalog:prod",
-    "mdast-util-gfm-table": "catalog:prod",
     "mdast-util-gfm-task-list-item": "catalog:prod",
     "mdast-util-math": "catalog:prod",
     "mdast-util-to-hast": "catalog:prod",

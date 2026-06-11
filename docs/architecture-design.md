@@ -13,7 +13,7 @@ Cloud Document Converter 是一个 Chrome Extension，用于在飞书/Lark 云�
 - 在飞书/Lark Docx 页面内提供低摩擦的 Markdown 预览能力。
 - 支持用户把当前 Docx 文档转换为 Markdown 并在新窗口中查看。
 - 尽量保留文档结构，包括标题层级、列表、任务列表、表格、图片、iframe、内联样式和部分 ISV 块。
-- 使用内置 `fallbackSettings` 固定转换策略，包括主题、表格输出方式、布局 Grid 输出方式和文本高亮。
+- 使用固定内置转换策略：主题跟随系统，表格统一转 HTML，Grid 子块扁平化，文本高亮始终保留。
 
 ### 2.2 技术目标
 
@@ -63,7 +63,7 @@ flowchart LR
 | Chrome Extension package | `apps/chrome-extension` | MV3 扩展应用、Vue 页面、content/background/injected scripts、扩展构建 |
 | Lark 转换模块 | `apps/chrome-extension/src/lark` | 飞书 Docx block 模型适配、mdast 转换、Markdown 序列化、图片 token URL 映射 |
 | Shared 工具模块 | `apps/chrome-extension/src/shared` | 应用内部通用工具、时间常量、DOM 轮询工具 |
-| 扩展业务公共模块 | `apps/chrome-extension/src/common` | 设置模型、错误上报、表格/Grid 后处理、扩展消息枚举 |
+| 扩展业务公共模块 | `apps/chrome-extension/src/common` | 错误上报、表格 HTML 后处理、扩展消息枚举 |
 | TS 配置 | `apps/chrome-extension/tsconfig*.json`, 根 `tsconfig.json` | 应用与根工具脚本的 TypeScript 配置 |
 | 版本变更 | `.changeset` | 扩展 package 发布变更记录 |
 
@@ -111,7 +111,7 @@ flowchart TD
 - 在飞书 Docx 页面上渲染固定定位的预览按钮。
 - 监听飞书页面 DOM 变化，等待页面右侧帮助/评论按钮等锚点出现后计算按钮位置。
 - 监听 SPA 路由切换，清理旧按钮并重新初始化。
-- 不负责设置读取；转换脚本直接使用源码内的 `fallbackSettings`。
+- 不负责设置读取；转换脚本使用固定内置转换策略。
 
 ### 5.4 Popup 页面
 
@@ -123,9 +123,9 @@ Popup 是轻量命令菜单，仅包含：
 
 在生产环境中，操作项通过 `chrome.runtime.sendMessage({ flag })` 交给 background 注入脚本；在开发环境中输出调试日志。
 
-### 5.5 固定配置
+### 5.5 固定策略
 
-项目不再提供 Options 页面，也不再从 `chrome.storage.sync` 读取设置。转换流程统一使用 `apps/chrome-extension/src/common/settings.ts` 中的 `fallbackSettings`。
+项目不再提供 Options 页面，也不再从 `chrome.storage.sync` 读取设置。转换流程直接内联固定策略，不再保留设置模型。
 
 ## 6. 运行时通信设计
 
@@ -147,9 +147,9 @@ sequenceDiagram
   Main->>Main: 校验页面并转换 Markdown
 ```
 
-### 6.2 设置来源
+### 6.2 固定策略
 
-MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。预览脚本直接导入 `fallbackSettings`，避免引入 `storage` 权限和跨 world 设置协议。
+MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。预览脚本直接执行固定转换流程，避免引入 `storage` 权限、跨 world 设置协议和设置分支。
 
 ## 7. Markdown 转换架构
 
@@ -172,7 +172,7 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 - `isReady`：判断 block 是否仍为 pending，以及 synced reference 是否准备完成。
 - `scrollTo`：滚动飞书文档容器，用于触发懒加载。
 - `intoMarkdownAST`：把飞书 block tree 转换成 mdast。
-- `Docx.stringify`：使用 `mdast-util-to-markdown` 输出 Markdown，并启用 GFM 删除线、任务列表、表格和数学表达式扩展。
+- `Docx.stringify`：使用 `mdast-util-to-markdown` 输出 Markdown，并启用 GFM 删除线、任务列表和数学表达式扩展。
 
 ### 7.2 Transformer
 
@@ -180,7 +180,7 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 - `parent`：当前 mdast 父节点，用于决定图片是否包裹 paragraph、表格替换位置等。
 - `mentionUsers`：待二次解析的用户 mention。
-- `tableWithParents`：待按设置后处理的 table/grid 节点及其父节点。
+- `tableWithParents`：待统一转 HTML 的 table 节点及其父节点。
 - `sequences`：标题自动编号状态。
 
 主要 block 映射：
@@ -197,7 +197,7 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 | `IMAGE` | `image`，URL 使用图片 token |
 | `WHITEBOARD`, `DIAGRAM`, `FILE` | 跳过 |
 | `TABLE` | `table`，记录列宽、合并单元格和异常子节点 |
-| `GRID` | `table` 或扁平化子块，取决于设置 |
+| `GRID` | 扁平化为子块 |
 | `IFRAME` | HTML iframe |
 | `ISV` 文本绘图/时间线 | Mermaid code block |
 | 不支持块 | 跳过或降级 |
@@ -211,22 +211,19 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 - 行内代码。
 - 数学公式。
 - 链接。
-- 文本高亮，是否保留由 `general.text_highlight` 控制。
+- 文本高亮，始终保留为 HTML。
 - mention 用户，先转换为占位 inlineCode，后续定位页面 DOM 解析为 `@用户名`。
 - mention doc 等 inline component。
 
 ### 7.4 表格与 Grid 后处理
 
-扩展层在 `apps/chrome-extension/src/common/utils.ts` 根据 `fallbackSettings` 执行后处理：
+扩展层在 `apps/chrome-extension/src/common/utils.ts` 执行固定后处理：
 
-- `general.table = filtered`：过滤复杂表格。
-- `general.table = nonPhrasingContentToHTML`：仅把包含非 phrasing 内容的表格转 HTML。
-- `general.table = toHTML`：把表格转 HTML。
-- `general.grid = flatten`：在 Transformer 中把 Grid 子块扁平化。
-- `general.grid = toTable`：把 Grid 当表格输出。
-- `general.grid = toHTML`：把 Grid 转 HTML，并保留列宽。
+- Grid 在 Transformer 中直接扁平化为子块。
+- 所有 table 统一转 HTML。
+- 包含非 phrasing 内容的复杂表格会先用 `invalidChildren` 替换单元格内容，再转 HTML。
+- 表格转 HTML 时会处理 `rowSpan`、`colSpan` 和 `colgroup`，避免 GFM 表格无法表达复杂结构。
 
-表格转 HTML 时会处理 `rowSpan`、`colSpan` 和 `colgroup`，避免 GFM 表格无法表达复杂结构。
 
 ## 8. 核心业务流程
 
@@ -237,13 +234,12 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 流程：
 
 1. 校验当前页面是 Docx，且文档内容已加载完成。
-2. 读取 `fallbackSettings` 中的表格、Grid、文本高亮设置。
-3. 调用 `docx.intoMarkdownAST` 生成 mdast。
-4. 解析 mention 用户。
-5. 按 `fallbackSettings` 处理 table/grid。
-6. `Docx.stringify(root)` 输出 Markdown。
-7. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
-8. 用 Toast 提示失败或可上报错误。
+2. 调用 `docx.intoMarkdownAST` 生成 mdast，过程中固定保留文本高亮并扁平化 Grid。
+3. 解析 mention 用户。
+4. 将所有 table 转 HTML。
+5. `Docx.stringify(root)` 输出 Markdown。
+6. 使用 `window.open` 创建新窗口，将 Markdown 写入 `pre` 并注入简单样式。
+7. 用 Toast 提示失败或可上报错误。
 
 ## 9. 资源访问设计
 
@@ -253,22 +249,20 @@ MAIN world 注入脚本不再通过 Content script 桥接读取扩展设置。�
 
 白板、图表和附件不再在预览流程中转换为本地资源或访问链接。
 
-## 10. 设置与主题
+## 10. 固定策略与主题
 
-### 10.1 设置模型
+### 10.1 转换策略
 
-设置定义在 `apps/chrome-extension/src/common/settings.ts`：
+设置模型已删除。当前固定策略为：
 
-| Key | 含义 | 默认值 |
-| --- | --- | --- |
-| `general.theme` | 主题 | `system` |
-| `general.table` | 表格输出策略 | `nonPhrasingContentToHTML` |
-| `general.grid` | Grid 输出策略 | `flatten` |
-| `general.text_highlight` | 是否保留文本高亮 | `true` |
+- 主题跟随系统深浅色。
+- 所有表格转 HTML。
+- Grid 子块扁平化。
+- 文本高亮始终保留。
 
 ### 10.2 主题
 
-Popup 根据 `fallbackSettings[general.theme]` 初始化主题；默认 `system` 会跟随系统深浅色。主题不再保存到 storage。
+Popup 直接根据 `prefers-color-scheme` 初始化主题并监听系统主题变化。主题不再保存到 storage。
 
 ## 11. 构建架构
 
@@ -312,7 +306,7 @@ Turborepo 根任务：
 | 风险 | 影响 | 应对建议 |
 | --- | --- | --- |
 | 依赖飞书页面私有运行时对象 | 飞书前端结构变更可能导致转换失效 | 为 `PageMain`、block schema、DOM selector 增加更明确的兼容层 |
-| 复杂表格与 Grid 无法完全用 GFM 表达 | Markdown 输出可能丢结构 | 继续使用 `fallbackSettings` 中的 HTML 降级策略 |
+| 复杂表格与 Grid 无法完全用 GFM 表达 | Markdown 输出可能丢结构 | 继续使用固定 HTML 降级与 Grid 扁平化策略 |
 | 新窗口打开受用户激活限制 | 后台注入脚本可能无法打开预览窗口 | 保持预览动作直接由用户触发，并在失败时给出 Toast 提示 |
 
 ## 14. 演进建议

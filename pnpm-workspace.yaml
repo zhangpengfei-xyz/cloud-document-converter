@@ -50,7 +50,6 @@ catalogs:
     hast-util-to-html: ^9.0.5
     lucide-vue-next: ^0.544.0
     mdast-util-gfm-strikethrough: ^2.0.0
-    mdast-util-gfm-table: ^2.0.0
     mdast-util-gfm-task-list-item: ^2.0.0
     mdast-util-math: ^3.0.0
     mdast-util-to-hast: ^13.2.0

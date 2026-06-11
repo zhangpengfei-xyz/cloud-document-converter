@@ -1,10 +1,6 @@
 import { Docx, docx, Toast } from '../lark'
 import { reportBug } from '../common/issue'
-import {
-  transformMentionUsers,
-  transformTableBySettings,
-} from '../common/utils'
-import { fallbackSettings, SettingKey, Grid } from '../common/settings'
+import { transformMentionUsers, transformTablesToHtml } from '../common/utils'
 
 const message = {
   unknownError: 'Unknown error while opening preview',
@@ -38,15 +34,10 @@ const main = async () => {
     return
   }
 
-  const settings = fallbackSettings
-
-  const { root, tableWithParents, mentionUsers } = docx.intoMarkdownAST({
-    highlight: settings[SettingKey.TextHighlight],
-    flatGrid: settings[SettingKey.Grid] === Grid.Flatten,
-  })
+  const { root, tableWithParents, mentionUsers } = docx.intoMarkdownAST()
 
   await transformMentionUsers(mentionUsers)
-  transformTableBySettings(tableWithParents, settings)
+  transformTablesToHtml(tableWithParents)
 
   const markdown = Docx.stringify(root)
 

@@ -4,7 +4,6 @@ import { isDefined, OneHundred } from '../shared'
 import { toMarkdown, type Options } from 'mdast-util-to-markdown'
 import { gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
 import { gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
-import { gfmTableToMarkdown } from 'mdast-util-gfm-table'
 import { mathToMarkdown, type InlineMath } from 'mdast-util-math'
 import { PageMain, isDoc, isDocx } from './env'
 import {
@@ -641,10 +640,6 @@ const mergePhrasingContents = (
         : [current]
     })
 
-interface TransformOperationsToPhrasingContentsOptions {
-  highlight?: boolean
-}
-
 type InlineComponent =
   | {
       type: 'mention_doc'
@@ -776,7 +771,6 @@ const sortOperationMarks = (
 
 const createLiteralNode = (
   op: Operation,
-  options: TransformOperationsToPhrasingContentsOptions,
 ): mdast.Text | mdast.InlineCode | InlineMath | mdast.Html => {
   const { attributes, insert } = op
   const {
@@ -812,7 +806,7 @@ const createLiteralNode = (
     }
   }
 
-  if (options.highlight && (textHighlight || textHighlightBackground)) {
+  if (textHighlight || textHighlightBackground) {
     const highlighted = `<span style="color: ${textHighlight ?? 'inherit'}; background-color: ${textHighlightBackground ?? 'inherit'}">${escape(insert)}</span>`
 
     return {
@@ -869,10 +863,9 @@ const wrapWithMark = (
 const transformOperationToPhrasingContent = (
   op: Operation,
   marks: MarkNodeType[],
-  options: TransformOperationsToPhrasingContentsOptions,
   mentionUsers: mdast.InlineCode[],
 ): mdast.PhrasingContent => {
-  const literal = createLiteralNode(op, options)
+  const literal = createLiteralNode(op)
 
   if (literal.type === 'inlineCode' && literal.data?.mentionUserId) {
     mentionUsers.push(literal)
@@ -886,7 +879,6 @@ const transformOperationToPhrasingContent = (
 
 const transformOperationsToPhrasingContents = (
   ops: Operation[],
-  options: TransformOperationsToPhrasingContentsOptions = {},
 ): { contents: mdast.PhrasingContent[]; mentionUsers: mdast.InlineCode[] } => {
   const mentionUsers: mdast.InlineCode[] = []
 
@@ -898,7 +890,6 @@ const transformOperationsToPhrasingContents = (
     transformOperationToPhrasingContent(
       op,
       sortOperationMarks(marksByIndex[index], index, marksByIndex, operations),
-      options,
       mentionUsers,
     ),
   )
@@ -932,19 +923,6 @@ const generateMermaidTimeline = (items: Timeline[]): string => {
 const evaluateAlt = (caption?: Caption) =>
   trimEndEnter(caption?.text.initialAttributedTexts.text?.[0] ?? '')
 
-interface TransformerOptions {
-  /**
-   * Enable convert text highlight to html.
-   * @default false
-   */
-  highlight?: boolean
-  /**
-   * Enable flat grid.
-   * @default false
-   */
-  flatGrid?: boolean
-}
-
 export interface TableWithParent {
   inner: mdast.Table
   parent: mdast.Parent | null
@@ -964,13 +942,6 @@ class Transformer {
    * heading sequence state
    */
   private sequences: (string | undefined)[] = []
-
-  constructor(
-    public options: TransformerOptions = {
-      highlight: false,
-      flatGrid: false,
-    },
-  ) {}
 
   private normalizeImage(image: mdast.Image): mdast.Image | mdast.Paragraph {
     return this.parent?.type === 'tableCell'
@@ -997,7 +968,7 @@ class Transformer {
 
   private flattenChildren(children: Blocks[]): Blocks[] {
     return children.flatMap(child => {
-      if (child.type === BlockType.GRID && this.options.flatGrid) {
+      if (child.type === BlockType.GRID) {
         return this.flattenChildren(
           child.children.map(column => column.children).flat(1),
         )
@@ -1024,7 +995,6 @@ class Transformer {
   private transformInlineContents(block: Block): mdast.PhrasingContent[] {
     const { contents, mentionUsers } = transformOperationsToPhrasingContents(
       block.zoneState?.content.ops ?? [],
-      { highlight: this.options.highlight },
     )
 
     mentionUsers.forEach(user => {
@@ -1426,7 +1396,6 @@ export class Docx {
       extensions: [
         gfmStrikethroughToMarkdown(),
         gfmTaskListItemToMarkdown(),
-        gfmTableToMarkdown(),
         mathToMarkdown({
           singleDollarTextMath: false,
         }),
@@ -1528,9 +1497,7 @@ export class Docx {
     }
   }
 
-  intoMarkdownAST(
-    transformerOptions: TransformerOptions = {},
-  ): TransformResult {
+  intoMarkdownAST(): TransformResult {
     if (!this.rootBlock) {
       return {
         root: { type: 'root', children: [] },
@@ -1539,9 +1506,7 @@ export class Docx {
       }
     }
 
-    const transformer = new Transformer({
-      ...transformerOptions,
-    })
+    const transformer = new Transformer()
 
     return transformer.transform(this.rootBlock)
   }
