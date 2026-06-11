@@ -18,6 +18,7 @@ import {
   type Grid,
   type GridColumn,
   type HeadingBlock,
+  type ImageBlock,
   type OrderedBlock,
   type PageBlock,
   type TableBlock,
@@ -25,7 +26,7 @@ import {
   type TextBlock,
   type TodoBlock,
 } from './lark'
-import { evaluateAlt, generateMermaidTimeline, iframeToHtml } from './embeds'
+import { generateMermaidTimeline, iframeToHtml } from './embeds'
 import {
   transformOperationsToPhrasingContents,
   trimTrailingLineBreak,
@@ -49,6 +50,25 @@ export class Transformer {
   private tableWithParents: TableWithParent[] = []
   private sequences: (string | undefined)[] = []
   private orderedListSequences = new WeakMap<mdast.Parent, number>()
+
+  private transformImage(block: ImageBlock): mdast.Image | mdast.Paragraph {
+    return this.normalizeImage(this.createImage(block))
+  }
+
+  private createImage(block: ImageBlock): mdast.Image {
+    const { caption, token } = block.snapshot.image
+    const alt =
+      trimTrailingLineBreak(
+        caption?.text.initialAttributedTexts.text?.[0] ?? '',
+      ) || token
+
+    return {
+      type: 'image',
+      url: `https://internal-api-drive-stream.larkoffice.com/space/api/box/stream/download/preview/${encodeURIComponent(token)}?preview_type=16`,
+      alt,
+      title: null,
+    }
+  }
 
   private normalizeImage(image: mdast.Image): mdast.Image | mdast.Paragraph {
     return this.parent?.type === 'tableCell'
@@ -459,15 +479,7 @@ export class Transformer {
         return this.createParagraph(this.transformInlineContents(block))
       }
       case BlockType.IMAGE: {
-        const { caption, token } = block.snapshot.image
-        const image: mdast.Image = {
-          type: 'image',
-          url: token,
-          alt: evaluateAlt(caption),
-          title: null,
-        }
-
-        return this.normalizeImage(image)
+        return this.transformImage(block)
       }
       case BlockType.BITABLE:
       case BlockType.CHAT_CARD:

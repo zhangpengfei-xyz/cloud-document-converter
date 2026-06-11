@@ -1,7 +1,6 @@
 import type * as mdast from 'mdast'
 import { escape } from 'es-toolkit/string'
-import type { Caption, IframeBlock, Timeline } from './lark'
-import { trimTrailingLineBreak } from './inline'
+import type { IframeBlock, Timeline } from './lark'
 
 const DEFAULT_IFRAME_HEIGHT = 400
 
@@ -39,6 +38,3 @@ export const generateMermaidTimeline = (items: Timeline[]): string => {
 
   return chart
 }
-
-export const evaluateAlt = (caption?: Caption): string =>
-  trimTrailingLineBreak(caption?.text.initialAttributedTexts.text?.[0] ?? '')
