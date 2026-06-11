@@ -1,6 +1,6 @@
 import type * as mdast from 'mdast'
 import { chunk } from 'es-toolkit/array'
-import { compare, isDefined, OneHundred } from '../shared'
+import { isDefined, OneHundred } from '../shared'
 import { toMarkdown, type Options } from 'mdast-util-to-markdown'
 import { gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
 import { gfmTaskListItemToMarkdown } from 'mdast-util-gfm-task-list-item'
@@ -9,7 +9,6 @@ import { mathToMarkdown, type InlineMath } from 'mdast-util-math'
 import { PageMain, isDoc, isDocx } from './env'
 import {
   isBlockquoteContent,
-  isParent,
   isPhrasingContent,
   isRootContent,
   isTableCell,
@@ -458,150 +457,182 @@ const iframeToHTML = (iframe: IframeBlock): mdast.Html | null => {
 const trimEndEnter = (input: string) =>
   input.length > 0 && input.endsWith('\n') ? input.slice(0, -1) : input
 
-const chunkBy = <T>(
-  items: T[],
-  isEqual: (current: T, next: T) => boolean,
-): T[][] => {
-  const chunks: T[][] = []
-  let index = 0
-
-  while (index < items.length) {
-    let nextIndex = index + 1
-    while (
-      nextIndex < items.length &&
-      isEqual(items[index], items[nextIndex])
-    ) {
-      nextIndex++
-    }
-
-    chunks.push(items.slice(index, nextIndex))
-
-    index = nextIndex
+const listItemType = (
+  listItem: mdast.ListItem,
+): BlockType.TODO | BlockType.ORDERED | BlockType.BULLET => {
+  if (typeof listItem.checked === 'boolean') {
+    return BlockType.TODO
   }
 
-  return chunks
+  if (typeof listItem.data?.seq === 'number' || listItem.data?.seq === 'auto') {
+    return BlockType.ORDERED
+  }
+
+  return BlockType.BULLET
 }
 
-const mergeListItems = <T extends mdast.Nodes>(
-  nodes: T[],
-): (mdast.List | T)[] =>
-  chunkBy(nodes, (current, next) => {
-    const listItemType = (listItem: mdast.ListItem) => {
-      if (typeof listItem.checked === 'boolean') {
-        return BlockType.TODO
-      }
+const canMergeOrderedListItems = (
+  current: mdast.ListItem,
+  next: mdast.ListItem,
+): boolean => {
+  const seq = current.data?.seq
+  const nextSeq = next.data?.seq
 
-      if (
-        typeof listItem.data?.seq === 'number' ||
-        listItem.data?.seq === 'auto'
-      ) {
-        return BlockType.ORDERED
-      }
+  if (!seq || !nextSeq) return false
 
-      return BlockType.BULLET
+  if (seq === 'auto') {
+    return nextSeq === 'auto'
+  }
+
+  return nextSeq === 'auto' || seq + 1 === nextSeq
+}
+
+const canMergeListItems = (
+  current: mdast.ListItem,
+  next: mdast.ListItem,
+): boolean => {
+  const type = listItemType(current)
+
+  if (type !== listItemType(next)) {
+    return false
+  }
+
+  return type === BlockType.ORDERED
+    ? canMergeOrderedListItems(current, next)
+    : true
+}
+
+const createList = (children: mdast.ListItem[]): mdast.List => {
+  const first = children[0]
+
+  return {
+    type: 'list',
+    ...(typeof first.data?.seq === 'number'
+      ? {
+          ordered: true,
+          start: first.data.seq,
+        }
+      : null),
+    children,
+  }
+}
+
+const mergeListItems = (nodes: mdast.Nodes[]): mdast.Nodes[] => {
+  const merged: mdast.Nodes[] = []
+  let listItems: mdast.ListItem[] = []
+
+  const flushListItems = () => {
+    if (listItems.length === 0) return
+    merged.push(createList(listItems))
+    listItems = []
+  }
+
+  for (const node of nodes) {
+    if (node.type !== 'listItem') {
+      flushListItems()
+      merged.push(node)
+      continue
     }
 
-    const isEqualOrderedListItem = (
-      node: mdast.ListItem,
-      other: mdast.ListItem,
-    ) => {
-      const seq = node.data?.seq
-      const otherSeq = other.data?.seq
-
-      if (!seq || !otherSeq) return false
-
-      if (seq === 'auto') {
-        return otherSeq === 'auto'
-      }
-
-      return otherSeq === 'auto' || seq + 1 === otherSeq
+    const previous = listItems.at(-1)
+    if (previous && !canMergeListItems(previous, node)) {
+      flushListItems()
     }
 
-    const isEqualListItem = (node: mdast.ListItem, other: mdast.ListItem) => {
-      const type = listItemType(node)
-      const otherType = listItemType(other)
+    listItems.push(node)
+  }
 
-      if (type === otherType) {
-        return type === BlockType.ORDERED
-          ? isEqualOrderedListItem(node, other)
-          : true
-      }
+  flushListItems()
 
-      return false
+  return merged
+}
+
+const hasPhrasingChildren = (
+  node: mdast.PhrasingContent,
+): node is mdast.PhrasingContent & { children: mdast.PhrasingContent[] } =>
+  'children' in node && Array.isArray(node.children)
+
+const hasStringValue = (
+  node: mdast.PhrasingContent,
+): node is mdast.PhrasingContent & { value: string } =>
+  'value' in node && typeof node.value === 'string'
+
+const canMergePhrasingContent = (
+  current: mdast.PhrasingContent,
+  next: mdast.PhrasingContent,
+): boolean => {
+  if (current.type !== next.type) {
+    return false
+  }
+
+  if (current.type === 'link' && next.type === 'link') {
+    return current.url === next.url
+  }
+
+  if (current.type === 'inlineCode' && next.type === 'inlineCode') {
+    return !current.data?.mentionUserId
+  }
+
+  return (
+    current.type === 'emphasis' ||
+    current.type === 'strong' ||
+    current.type === 'delete' ||
+    current.type === 'text'
+  )
+}
+
+const mergePhrasingContent = (
+  current: mdast.PhrasingContent,
+  next: mdast.PhrasingContent,
+): mdast.PhrasingContent => {
+  if (hasPhrasingChildren(current) && hasPhrasingChildren(next)) {
+    return {
+      ...current,
+      ...next,
+      children: current.children.concat(next.children),
+    } as mdast.PhrasingContent
+  }
+
+  if (hasStringValue(current) && hasStringValue(next)) {
+    return {
+      ...current,
+      ...next,
+      value: current.value.concat(next.value),
+    } as mdast.PhrasingContent
+  }
+
+  return current
+}
+
+const mergeAdjacentPhrasingContents = (
+  nodes: mdast.PhrasingContent[],
+): mdast.PhrasingContent[] => {
+  const merged: mdast.PhrasingContent[] = []
+
+  for (const node of nodes) {
+    const previous = merged.at(-1)
+    if (previous && canMergePhrasingContent(previous, node)) {
+      merged[merged.length - 1] = mergePhrasingContent(previous, node)
+    } else {
+      merged.push(node)
     }
+  }
 
-    return (
-      current.type === 'listItem' &&
-      next.type === 'listItem' &&
-      isEqualListItem(current, next)
-    )
-  }).map(nodes => {
-    const node = nodes[0]
-
-    if (node.type === 'listItem') {
-      const list: mdast.List = {
-        type: 'list',
-        ...(typeof node.data?.seq === 'number'
-          ? {
-              ordered: true,
-              start: node.data.seq,
-            }
-          : null),
-        children: nodes as mdast.ListItem[],
-      }
-      return list
-    }
-
-    return node
-  })
+  return merged
+}
 
 const mergePhrasingContents = (
   nodes: mdast.PhrasingContent[],
 ): mdast.PhrasingContent[] =>
-  chunkBy(nodes, (current, next) => {
-    if (current.type === 'link' && next.type === 'link') {
-      return current.url === next.url
-    }
-
-    if (
-      current.type === 'emphasis' ||
-      current.type === 'strong' ||
-      current.type === 'delete' ||
-      current.type === 'text' ||
-      (current.type === 'inlineCode' && !current.data?.mentionUserId)
-    ) {
-      return current.type === next.type
-    }
-
-    return false
-  })
-    .map(nodes => {
-      const node = nodes.reduce((pre, cur) => {
-        if ('children' in pre && 'children' in cur) {
-          return {
-            ...pre,
-            ...cur,
-            children: pre.children.concat(cur.children),
-          }
-        }
-
-        if ('value' in pre && 'value' in cur) {
-          return {
-            ...pre,
-            ...cur,
-            value: pre.value.concat(cur.value),
-          }
-        }
-
-        return pre
-      })
-
-      if ('children' in node) {
-        node.children = mergePhrasingContents(node.children)
-      }
-
-      return node
-    })
+  mergeAdjacentPhrasingContents(nodes)
+    .map(node =>
+      hasPhrasingChildren(node)
+        ? ({
+            ...node,
+            children: mergePhrasingContents(node.children),
+          } as mdast.PhrasingContent)
+        : node,
+    )
     .flatMap((current, index, merged) => {
       const next = merged.at(index + 1)
 
@@ -614,6 +645,245 @@ interface TransformOperationsToPhrasingContentsOptions {
   highlight?: boolean
 }
 
+type InlineComponent =
+  | {
+      type: 'mention_doc'
+      data: {
+        raw_url: string
+        title: string
+      }
+    }
+  | {
+      type: 'user'
+      data: {
+        uid: string
+      }
+    }
+  | {
+      type: 'string'
+      data: unknown
+    }
+
+const markAttributeNames = ['italic', 'bold', 'strikethrough', 'link'] as const
+type MarkAttributeName = (typeof markAttributeNames)[number]
+type MarkNodeType = 'emphasis' | 'strong' | 'delete' | 'link'
+
+const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
+  italic: 'emphasis',
+  bold: 'strong',
+  strikethrough: 'delete',
+  link: 'link',
+}
+
+const isMarkAttributeName = (attr: string): attr is MarkAttributeName =>
+  (markAttributeNames as readonly string[]).includes(attr)
+
+const isRenderableOperation = (operation: Operation): boolean => {
+  if (isDefined(operation.attributes?.fixEnter)) {
+    return false
+  }
+
+  return isDefined(operation.attributes) || operation.insert !== '\n'
+}
+
+const parseInlineComponent = (value?: string): InlineComponent | null => {
+  if (!value) return null
+
+  try {
+    return JSON.parse(value) as InlineComponent
+  } catch {
+    return null
+  }
+}
+
+const normalizeInlineComponentOperation = (op: Operation): Operation => {
+  const inlineComponent = parseInlineComponent(
+    op.attributes?.['inline-component'],
+  )
+
+  if (!inlineComponent) {
+    return op
+  }
+
+  if (inlineComponent.type === 'mention_doc') {
+    return {
+      attributes: {
+        ...op.attributes,
+        link: inlineComponent.data.raw_url,
+      },
+      insert: op.insert + inlineComponent.data.title,
+    }
+  }
+
+  if (inlineComponent.type === 'user') {
+    return {
+      attributes: {
+        ...op.attributes,
+        mentionUserId: inlineComponent.data.uid,
+      },
+      insert: '',
+    }
+  }
+
+  return op
+}
+
+const getOperationMarks = (op: Operation): MarkNodeType[] =>
+  Object.keys(op.attributes ?? {})
+    .filter(isMarkAttributeName)
+    .map(attr => markAttributeToNodeType[attr])
+
+const markSpanLength = (
+  mark: MarkNodeType,
+  index: number,
+  marksByIndex: MarkNodeType[][],
+  operations: Operation[],
+): number => {
+  let length = 0
+
+  for (
+    let start = index;
+    start >= 0 && marksByIndex[start].includes(mark);
+    start--
+  ) {
+    length += operations[start].insert.length
+  }
+
+  for (
+    let end = index + 1;
+    end < marksByIndex.length && marksByIndex[end].includes(mark);
+    end++
+  ) {
+    length += operations[end].insert.length
+  }
+
+  return length
+}
+
+const sortOperationMarks = (
+  marks: MarkNodeType[],
+  index: number,
+  marksByIndex: MarkNodeType[][],
+  operations: Operation[],
+): MarkNodeType[] =>
+  marks
+    .slice()
+    .sort(
+      (a, b) =>
+        markSpanLength(a, index, marksByIndex, operations) -
+        markSpanLength(b, index, marksByIndex, operations),
+    )
+
+const createLiteralNode = (
+  op: Operation,
+  options: TransformOperationsToPhrasingContentsOptions,
+): mdast.Text | mdast.InlineCode | InlineMath | mdast.Html => {
+  const { attributes, insert } = op
+  const {
+    inlineCode,
+    equation,
+    textHighlight,
+    textHighlightBackground,
+    mentionUserId,
+    underline,
+  } = attributes ?? {}
+
+  if (mentionUserId) {
+    return {
+      type: 'inlineCode',
+      value: insert,
+      data: {
+        mentionUserId,
+      },
+    }
+  }
+
+  if (inlineCode) {
+    return {
+      type: 'inlineCode',
+      value: insert,
+    }
+  }
+
+  if (equation && equation.length > 0) {
+    return {
+      type: 'inlineMath',
+      value: trimEndEnter(equation),
+    }
+  }
+
+  if (options.highlight && (textHighlight || textHighlightBackground)) {
+    const highlighted = `<span style="color: ${textHighlight ?? 'inherit'}; background-color: ${textHighlightBackground ?? 'inherit'}">${escape(insert)}</span>`
+
+    return {
+      type: 'html',
+      value: underline ? `<u>${highlighted}</u>` : highlighted,
+    }
+  }
+
+  if (underline) {
+    return {
+      type: 'html',
+      value: `<u>${escape(insert)}</u>`,
+    }
+  }
+
+  return {
+    type: 'text',
+    value: insert,
+  }
+}
+
+const wrapWithMark = (
+  node: mdast.PhrasingContent,
+  mark: MarkNodeType,
+  op: Operation,
+): mdast.PhrasingContent => {
+  switch (mark) {
+    case 'link':
+      return {
+        type: 'link',
+        url: decodeURIComponent(op.attributes?.link ?? ''),
+        children: [node],
+      }
+    case 'emphasis':
+      return {
+        type: 'emphasis',
+        children: [node],
+      }
+    case 'strong':
+      return {
+        type: 'strong',
+        children: [node],
+      }
+    case 'delete':
+      return {
+        type: 'delete',
+        children: [node],
+      }
+    default:
+      return undefined as never
+  }
+}
+
+const transformOperationToPhrasingContent = (
+  op: Operation,
+  marks: MarkNodeType[],
+  options: TransformOperationsToPhrasingContentsOptions,
+  mentionUsers: mdast.InlineCode[],
+): mdast.PhrasingContent => {
+  const literal = createLiteralNode(op, options)
+
+  if (literal.type === 'inlineCode' && literal.data?.mentionUserId) {
+    mentionUsers.push(literal)
+  }
+
+  return marks.reduce<mdast.PhrasingContent>(
+    (node, mark) => wrapWithMark(node, mark, op),
+    literal,
+  )
+}
+
 const transformOperationsToPhrasingContents = (
   ops: Operation[],
   options: TransformOperationsToPhrasingContentsOptions = {},
@@ -621,209 +891,17 @@ const transformOperationsToPhrasingContents = (
   const mentionUsers: mdast.InlineCode[] = []
 
   const operations = ops
-    .filter(operation => {
-      if (
-        isDefined(operation.attributes) &&
-        isDefined(operation.attributes.fixEnter)
-      ) {
-        return false
-      }
-
-      if (!isDefined(operation.attributes) && operation.insert === '\n') {
-        return false
-      }
-
-      return true
-    })
-    .map(op => {
-      if (isDefined(op.attributes) && op.attributes['inline-component']) {
-        try {
-          const inlineComponent = JSON.parse(
-            op.attributes['inline-component'],
-          ) as
-            | {
-                type: 'mention_doc'
-                data: {
-                  raw_url: string
-                  title: string
-                }
-              }
-            | {
-                type: 'user'
-                data: {
-                  uid: string
-                }
-              }
-            | {
-                type: 'string'
-                data: unknown
-              }
-          if (inlineComponent.type === 'mention_doc') {
-            return {
-              attributes: {
-                ...op.attributes,
-                link: inlineComponent.data.raw_url,
-              },
-              insert: op.insert + inlineComponent.data.title,
-            } as Operation
-          } else if (inlineComponent.type === 'user') {
-            return {
-              attributes: {
-                ...op.attributes,
-                mentionUserId: inlineComponent.data.uid,
-              },
-              insert: '',
-            }
-          }
-
-          return op
-        } catch {
-          return op
-        }
-      }
-
-      return op
-    })
-
-  let indexToMarks = operations.map(({ attributes = {} }) => {
-    type SupportAttrName = 'italic' | 'bold' | 'strikethrough' | 'link'
-
-    const isSupportAttr = (attr: string): attr is SupportAttrName =>
-      attr === 'italic' ||
-      attr === 'bold' ||
-      attr === 'strikethrough' ||
-      attr === 'link'
-
-    const attrNameToNodeType = (
-      attr: SupportAttrName,
-    ): 'emphasis' | 'strong' | 'delete' | 'link' => {
-      switch (attr) {
-        case 'italic':
-          return 'emphasis'
-        case 'bold':
-          return 'strong'
-        case 'strikethrough':
-          return 'delete'
-        case 'link':
-          return 'link'
-        default:
-          return undefined as never
-      }
-    }
-
-    const marks = Object.keys(attributes)
-      .filter(isSupportAttr)
-      .map(attrNameToNodeType)
-
-    return marks
-  })
-
-  indexToMarks = indexToMarks.map((marks, index) => {
-    const markToPriority = new Map(marks.map(mark => [mark, 0]))
-
-    marks.forEach(mark => {
-      let priority = 0
-      let start = index
-      while (start >= 0 && indexToMarks[start].includes(mark)) {
-        priority += operations[start].insert.length
-        start--
-      }
-      let end = index + 1
-      while (end < indexToMarks.length && indexToMarks[end].includes(mark)) {
-        priority += operations[end].insert.length
-        end++
-      }
-      markToPriority.set(mark, priority)
-    })
-
-    return marks.sort((a, b) =>
-      compare(markToPriority.get(a) ?? 0, markToPriority.get(b) ?? 0),
-    )
-  })
-
-  const createLiteral = (
-    op: Operation,
-  ): mdast.Text | mdast.InlineCode | InlineMath | mdast.Html => {
-    const { attributes, insert } = op
-    const {
-      inlineCode,
-      equation,
-      textHighlight,
-      textHighlightBackground,
-      mentionUserId,
-      underline,
-    } = attributes ?? {}
-
-    if (mentionUserId) {
-      const mentionUser: mdast.InlineCode = {
-        type: 'inlineCode',
-        value: insert,
-        data: {
-          mentionUserId,
-        },
-      }
-
-      mentionUsers.push(mentionUser)
-
-      return mentionUser
-    }
-
-    if (inlineCode) {
-      return {
-        type: 'inlineCode',
-        value: insert,
-      }
-    }
-
-    if (equation && equation.length > 0) {
-      return {
-        type: 'inlineMath',
-        value: trimEndEnter(equation),
-      }
-    }
-
-    if (options.highlight && (textHighlight || textHighlightBackground)) {
-      const highlighted = `<span style="color: ${textHighlight ?? 'inherit'}; background-color: ${textHighlightBackground ?? 'inherit'}">${escape(insert)}</span>`
-
-      return {
-        type: 'html',
-        value: underline ? `<u>${highlighted}</u>` : highlighted,
-      }
-    }
-
-    if (underline) {
-      return {
-        type: 'html',
-        value: `<u>${escape(insert)}</u>`,
-      }
-    }
-
-    return {
-      type: 'text',
-      value: insert,
-    }
-  }
-
-  const nodes = indexToMarks.map((marks, index) => {
-    const op = operations[index]
-
-    let node: mdast.PhrasingContent = createLiteral(op)
-    for (const mark of marks) {
-      node =
-        mark === 'link'
-          ? {
-              type: mark,
-              url: decodeURIComponent(op.attributes?.link ?? ''),
-              children: [node],
-            }
-          : {
-              type: mark,
-              children: [node],
-            }
-    }
-
-    return node
-  })
+    .filter(isRenderableOperation)
+    .map(normalizeInlineComponentOperation)
+  const marksByIndex = operations.map(getOperationMarks)
+  const nodes = operations.map((op, index) =>
+    transformOperationToPhrasingContent(
+      op,
+      sortOperationMarks(marksByIndex[index], index, marksByIndex, operations),
+      options,
+      mentionUsers,
+    ),
+  )
 
   const contents = mergePhrasingContents(nodes)
 
@@ -854,32 +932,6 @@ const generateMermaidTimeline = (items: Timeline[]): string => {
 const evaluateAlt = (caption?: Caption) =>
   trimEndEnter(caption?.text.initialAttributedTexts.text?.[0] ?? '')
 
-type Mutate<T extends Block> = T extends PageBlock
-  ? mdast.Root
-  : T extends DividerBlock
-    ? mdast.ThematicBreak
-    : T extends HeadingBlock
-      ? mdast.Heading
-      : T extends CodeBlock
-        ? mdast.Code
-        : T extends QuoteContainerBlock | Callout
-          ? mdast.Blockquote
-          : T extends BulletBlock | OrderedBlock | TodoBlock
-            ? mdast.ListItem
-            : T extends TextBlock
-              ? mdast.Text
-              : T extends TableBlock | Grid
-                ? mdast.Table
-                : T extends TableCellBlock | GridColumn
-                  ? mdast.TableCell
-                  : T extends View
-                    ? mdast.Paragraph
-                    : T extends IframeBlock
-                      ? mdast.Html
-                      : T extends TextDrawingBlock | TimelineBlock
-                        ? mdast.Code
-                        : null
-
 interface TransformerOptions {
   /**
    * Enable convert text highlight to html.
@@ -898,8 +950,8 @@ export interface TableWithParent {
   parent: mdast.Parent | null
 }
 
-interface TransformResult<T> {
-  root: T
+interface TransformResult {
+  root: mdast.Root
   tableWithParents: TableWithParent[]
   mentionUsers: mdast.InlineCode[]
 }
@@ -926,97 +978,306 @@ class Transformer {
       : { type: 'paragraph', children: [image] }
   }
 
-  private transformParentBlock<T extends Blocks>(
-    block: T,
-    evaluateNode: (block: T) => Mutate<T>,
-    transformChildren: (
-      children: mdast.Nodes[],
-    ) => Mutate<T> extends mdast.Parent ? Mutate<T>['children'] : never,
-  ) {
-    const previousParent = this.parent
+  private isTextContainerBlock(
+    block: Blocks,
+  ): block is HeadingBlock | TextBlock {
+    return (
+      block.type === BlockType.HEADING1 ||
+      block.type === BlockType.HEADING2 ||
+      block.type === BlockType.HEADING3 ||
+      block.type === BlockType.HEADING4 ||
+      block.type === BlockType.HEADING5 ||
+      block.type === BlockType.HEADING6 ||
+      block.type === BlockType.HEADING7 ||
+      block.type === BlockType.HEADING8 ||
+      block.type === BlockType.HEADING9 ||
+      block.type === BlockType.TEXT
+    )
+  }
 
-    const currentParent = evaluateNode(block)
-    if (!currentParent || !isParent(currentParent)) {
-      return currentParent
-    }
-    this.parent = currentParent
+  private flattenChildren(children: Blocks[]): Blocks[] {
+    return children.flatMap(child => {
+      if (child.type === BlockType.GRID && this.options.flatGrid) {
+        return this.flattenChildren(
+          child.children.map(column => column.children).flat(1),
+        )
+      }
 
-    const flatChildren = (children: Blocks[]): Blocks[] =>
-      children
-        .map(child => {
-          if (child.type === BlockType.GRID && this.options.flatGrid) {
-            return flatChildren(
-              child.children.map(column => column.children).flat(1),
-            )
-          }
+      if (this.isTextContainerBlock(child)) {
+        return [child, ...this.flattenChildren(child.children)]
+      }
 
-          if (
-            child.type === BlockType.HEADING1 ||
-            child.type === BlockType.HEADING2 ||
-            child.type === BlockType.HEADING3 ||
-            child.type === BlockType.HEADING4 ||
-            child.type === BlockType.HEADING5 ||
-            child.type === BlockType.HEADING6 ||
-            child.type === BlockType.HEADING7 ||
-            child.type === BlockType.HEADING8 ||
-            child.type === BlockType.HEADING9 ||
-            child.type === BlockType.TEXT
-          ) {
-            return [child, ...flatChildren(child.children)]
-          }
+      if (child.type === BlockType.SYNCED_SOURCE) {
+        return this.flattenChildren(child.children)
+      }
 
-          if (child.type === BlockType.SYNCED_SOURCE) {
-            return flatChildren(child.children)
-          }
+      if (child.type === BlockType.SYNCED_REFERENCE) {
+        return this.flattenChildren(
+          child.innerBlockManager?.rootBlockModel?.children ?? child.children,
+        )
+      }
 
-          if (child.type === BlockType.SYNCED_REFERENCE) {
-            return flatChildren(
-              child.innerBlockManager?.rootBlockModel?.children ??
-                child.children,
-            )
-          }
+      return [child]
+    })
+  }
 
-          return child
-        })
-        .flat(1)
-
-    currentParent.children = transformChildren(
-      flatChildren(block.children).map(this._transform).filter(isDefined),
+  private transformInlineContents(block: Block): mdast.PhrasingContent[] {
+    const { contents, mentionUsers } = transformOperationsToPhrasingContents(
+      block.zoneState?.content.ops ?? [],
+      { highlight: this.options.highlight },
     )
 
-    this.parent = previousParent
+    mentionUsers.forEach(user => {
+      if (user.data) {
+        user.data.parentBlockRecordId = block.record?.id
+      }
+    })
 
-    return currentParent
+    this.mentionUsers = this.mentionUsers.concat(mentionUsers)
+
+    return contents
+  }
+
+  private createListItem(
+    block: BulletBlock | OrderedBlock | TodoBlock,
+  ): mdast.ListItem {
+    const listItem: mdast.ListItem = {
+      type: 'listItem',
+      children: [],
+    }
+
+    if (block.type === BlockType.TODO) {
+      listItem.checked = Boolean(block.snapshot.done)
+    }
+
+    if (block.type === BlockType.ORDERED) {
+      listItem.data = {
+        seq: /[0-9]+/.test(block.snapshot.seq)
+          ? Number(block.snapshot.seq)
+          : 'auto',
+      }
+    }
+
+    return listItem
+  }
+
+  private createHeadingSequenceText(
+    block: HeadingBlock,
+    depth: mdast.Heading['depth'],
+  ): mdast.Text | null {
+    const { seq, seq_level: seqLevel } = block.snapshot
+
+    if (typeof seq !== 'string') {
+      return null
+    }
+
+    this.sequences = this.sequences.slice(0, depth)
+
+    if (seq === 'auto') {
+      const previousSequenceSibling = this.sequences[depth - 1] ?? '0'
+      this.sequences[depth - 1] = String(
+        parseInt(previousSequenceSibling, 10) + 1,
+      )
+    } else {
+      this.sequences[depth - 1] = seq
+    }
+
+    const sequences =
+      seqLevel === 'auto'
+        ? this.sequences.slice(0, depth).filter(isString)
+        : [seq]
+
+    return {
+      type: 'text',
+      value: sequences.join('.') + (sequences.length === 1 ? '. ' : ' '),
+    }
+  }
+
+  private transformHeading(block: HeadingBlock): mdast.Heading {
+    const depth = Number(block.type.at(-1)) as mdast.Heading['depth']
+    const sequenceText = this.createHeadingSequenceText(block, depth)
+
+    return {
+      type: 'heading',
+      depth,
+      children: [
+        ...(sequenceText ? [sequenceText] : []),
+        ...this.transformInlineContents(block),
+      ],
+    }
+  }
+
+  private createTable(block: TableBlock | Grid): mdast.Table {
+    return {
+      type: 'table',
+      children: [],
+      data: {
+        type: block.type,
+        ...(block.type === BlockType.TABLE
+          ? { cellSet: block.snapshot.cell_set }
+          : {}),
+      },
+    }
+  }
+
+  private resolveTableColumnWidths(
+    block: TableBlock | Grid,
+    cells: mdast.TableCell[],
+  ): number[] | undefined {
+    if (block.type === BlockType.TABLE) {
+      return block.snapshot.columns_id.map(
+        id => block.snapshot.column_set[id].column_width,
+      )
+    }
+
+    const widths = cells.map(cell => cell.data?.width)
+
+    return widths.every((width): width is number => typeof width === 'number')
+      ? widths
+      : undefined
+  }
+
+  private createTableRows(
+    block: TableBlock | Grid,
+    cells: mdast.TableCell[],
+  ): mdast.TableRow[] {
+    const rows =
+      block.type === BlockType.GRID
+        ? [cells]
+        : chunk(cells, block.snapshot.columns_id.length)
+
+    return rows.map(children => ({
+      type: 'tableRow',
+      children,
+    }))
+  }
+
+  private updateTableData(
+    table: mdast.Table,
+    block: TableBlock | Grid,
+    cells: mdast.TableCell[],
+  ): void {
+    const colWidths = this.resolveTableColumnWidths(block, cells)
+
+    table.data = {
+      ...table.data,
+      type: block.type,
+      ...(colWidths ? { colWidths } : {}),
+      invalid: cells.some(cell => cell.data?.invalidChildren),
+    }
+  }
+
+  private transformTable(block: TableBlock | Grid): mdast.Table {
+    const table = this.createTable(block)
+
+    this.transformParentBlock(block, table, nodes => {
+      const cells = nodes.filter(isTableCell)
+      this.updateTableData(table, block, cells)
+      return this.createTableRows(block, cells)
+    })
+
+    this.tableWithParents.push({
+      inner: table,
+      parent: this.parent,
+    })
+
+    return table
+  }
+
+  private createTableCell(block: TableCellBlock | GridColumn): mdast.TableCell {
+    return {
+      type: 'tableCell',
+      children: [],
+      ...(block.type === BlockType.GRID_COLUMN
+        ? { data: { width: block.snapshot.width_ratio } }
+        : {
+            data: {
+              ...toCamelCaseKeys(
+                (this.parent as mdast.Table).data?.cellSet?.[block.cellId]
+                  ?.merge_info,
+              ),
+            },
+          }),
+    }
+  }
+
+  private flattenTableCellNode(
+    node: mdast.Nodes,
+    next?: mdast.Nodes,
+  ): mdast.Nodes[] {
+    return [
+      ...(node.type === 'paragraph' ? node.children : [node]),
+      ...(next && node.type === 'paragraph' && next.type === 'paragraph'
+        ? [{ type: 'html', value: '<br />' } satisfies mdast.Html]
+        : []),
+    ]
+  }
+
+  private normalizeTableCellChildren(
+    nodes: mdast.Nodes[],
+    cell: mdast.TableCell,
+  ): mdast.PhrasingContent[] {
+    const normalizedNodes = mergeListItems(nodes).flatMap(
+      (node, index, nodes) =>
+        this.flattenTableCellNode(node, nodes.at(index + 1)),
+    )
+
+    if (normalizedNodes.every(isPhrasingContent)) {
+      return normalizedNodes
+    }
+
+    cell.data = {
+      ...cell.data,
+      invalidChildren: normalizedNodes,
+    }
+
+    return normalizedNodes.filter(isPhrasingContent)
+  }
+
+  private transformTableCell(block: TableCellBlock | GridColumn) {
+    const cell = this.createTableCell(block)
+
+    return this.transformParentBlock(block, cell, nodes =>
+      this.normalizeTableCellChildren(nodes, cell),
+    )
+  }
+
+  private transformParentBlock<P extends mdast.Parent>(
+    block: Block,
+    currentParent: P,
+    transformChildren: (children: mdast.Nodes[]) => P['children'],
+  ): P {
+    const previousParent = this.parent
+    this.parent = currentParent
+
+    try {
+      currentParent.children = transformChildren(
+        this.flattenChildren(block.children)
+          .map(this._transform)
+          .filter(isDefined),
+      )
+
+      return currentParent
+    } finally {
+      this.parent = previousParent
+    }
+  }
+
+  private transformRoot(block: PageBlock): mdast.Root {
+    const root: mdast.Root = {
+      type: 'root',
+      children: [],
+    }
+
+    return this.transformParentBlock(block, root, nodes =>
+      mergeListItems(nodes).filter(isRootContent),
+    )
   }
 
   private _transform = (block: Blocks): mdast.Nodes | null => {
-    const createChildrenFromOps = () => {
-      const { contents, mentionUsers } = transformOperationsToPhrasingContents(
-        block.zoneState?.content.ops ?? [],
-        { highlight: this.options.highlight },
-      )
-
-      mentionUsers.forEach(user => {
-        if (user.data) {
-          user.data.parentBlockRecordId = block.record?.id
-        }
-      })
-
-      this.mentionUsers = this.mentionUsers.concat(mentionUsers)
-
-      return contents
-    }
-
     switch (block.type) {
       case BlockType.PAGE: {
-        return this.transformParentBlock(
-          block,
-          () => ({
-            type: 'root',
-            children: [],
-          }),
-          nodes => mergeListItems(nodes).filter(isRootContent),
-        )
+        return this.transformRoot(block)
       }
       case BlockType.DIVIDER: {
         const thematicBreak: mdast.ThematicBreak = {
@@ -1030,40 +1291,7 @@ class Transformer {
       case BlockType.HEADING4:
       case BlockType.HEADING5:
       case BlockType.HEADING6: {
-        const depth = Number(block.type.at(-1)) as mdast.Heading['depth']
-
-        const heading: mdast.Heading = {
-          type: 'heading',
-          depth,
-          children: createChildrenFromOps(),
-        }
-
-        if (typeof block.snapshot.seq === 'string') {
-          // reset sequences state
-          this.sequences = this.sequences.slice(0, depth)
-
-          // automatic incremental sequence number
-          if (block.snapshot.seq === 'auto') {
-            const previousSequenceSibling = this.sequences[depth - 1] ?? '0'
-            this.sequences[depth - 1] = String(
-              parseInt(previousSequenceSibling, 10) + 1,
-            )
-          } else {
-            this.sequences[depth - 1] = block.snapshot.seq
-          }
-
-          const sequences =
-            block.snapshot.seq_level === 'auto'
-              ? this.sequences.slice(0, depth).filter(isString)
-              : [block.snapshot.seq]
-
-          heading.children.unshift({
-            type: 'text',
-            value: sequences.join('.') + (sequences.length === 1 ? '. ' : ' '),
-          })
-        }
-
-        return heading
+        return this.transformHeading(block)
       }
       case BlockType.CODE: {
         const code: mdast.Code = {
@@ -1075,13 +1303,13 @@ class Transformer {
       }
       case BlockType.QUOTE_CONTAINER:
       case BlockType.CALLOUT: {
-        return this.transformParentBlock(
-          block,
-          () => ({
-            type: 'blockquote',
-            children: [],
-          }),
-          nodes => mergeListItems(nodes).filter(isBlockquoteContent),
+        const blockquote: mdast.Blockquote = {
+          type: 'blockquote',
+          children: [],
+        }
+
+        return this.transformParentBlock(block, blockquote, nodes =>
+          mergeListItems(nodes).filter(isBlockquoteContent),
         )
       }
       case BlockType.BULLET:
@@ -1089,26 +1317,11 @@ class Transformer {
       case BlockType.TODO: {
         const paragraph: mdast.Paragraph = {
           type: 'paragraph',
-          children: createChildrenFromOps(),
+          children: this.transformInlineContents(block),
         }
         return this.transformParentBlock(
           block,
-          () => ({
-            type: 'listItem',
-            children: [],
-            ...(block.type === BlockType.TODO
-              ? { checked: Boolean(block.snapshot.done) }
-              : null),
-            ...(block.type === BlockType.ORDERED
-              ? {
-                  data: {
-                    seq: /[0-9]+/.test(block.snapshot.seq)
-                      ? Number(block.snapshot.seq)
-                      : 'auto',
-                  },
-                }
-              : null),
-          }),
+          this.createListItem(block),
           nodes => [
             paragraph,
             ...mergeListItems(nodes).filter(isListItemContent),
@@ -1121,7 +1334,7 @@ class Transformer {
       case BlockType.HEADING9: {
         const paragraph: mdast.Paragraph = {
           type: 'paragraph',
-          children: createChildrenFromOps(),
+          children: this.transformInlineContents(block),
         }
         return paragraph
       }
@@ -1143,116 +1356,11 @@ class Transformer {
       }
       case BlockType.TABLE:
       case BlockType.GRID: {
-        let table: mdast.Table = {
-          type: 'table',
-          children: [],
-          data: {
-            type: block.type,
-            ...(block.type === BlockType.TABLE
-              ? { cellSet: block.snapshot.cell_set }
-              : {}),
-          },
-        }
-
-        table = this.transformParentBlock(
-          block,
-          () => table,
-          nodes => {
-            const tableCells = nodes.filter(isTableCell)
-
-            const widthCells = tableCells.filter(
-              (cell): cell is mdast.TableCell & { data: { width: number } } =>
-                typeof cell.data?.width === 'number',
-            )
-            const colWidths =
-              block.type === BlockType.GRID
-                ? widthCells.length === tableCells.length
-                  ? widthCells.map(cell => cell.data.width)
-                  : undefined
-                : block.snapshot.columns_id.map(
-                    id => block.snapshot.column_set[id].column_width,
-                  )
-
-            table.data = {
-              ...table.data,
-              type: block.type,
-              ...(colWidths ? { colWidths } : {}),
-              invalid: tableCells.some(cell => cell.data?.invalidChildren),
-            }
-
-            return (
-              block.type === BlockType.GRID
-                ? [tableCells]
-                : chunk(tableCells, block.snapshot.columns_id.length)
-            ).map(tableCells => ({
-              type: 'tableRow',
-              children: tableCells,
-            }))
-          },
-        )
-
-        this.tableWithParents.push({
-          inner: table,
-          parent: this.parent,
-        })
-
-        return table
+        return this.transformTable(block)
       }
       case BlockType.CELL:
       case BlockType.GRID_COLUMN: {
-        const cell: mdast.TableCell = {
-          type: 'tableCell',
-          children: [],
-          ...(block.type === BlockType.GRID_COLUMN
-            ? { data: { width: block.snapshot.width_ratio } }
-            : {
-                data: {
-                  ...toCamelCaseKeys(
-                    (this.parent as mdast.Table).data?.cellSet?.[block.cellId]
-                      ?.merge_info,
-                  ),
-                },
-              }),
-        }
-
-        return this.transformParentBlock(
-          block,
-          () => cell,
-          nodes => {
-            const mergedNodes = mergeListItems(nodes)
-            const normalizedNodes: mdast.Nodes[] = []
-
-            for (let i = 0; i < mergedNodes.length; i++) {
-              const node = mergedNodes[i]
-              const nextNode = mergedNodes.at(i + 1)
-
-              if (node.type === 'paragraph') {
-                normalizedNodes.push(...node.children)
-              } else {
-                normalizedNodes.push(node as mdast.PhrasingContent)
-              }
-
-              if (
-                nextNode &&
-                node.type === 'paragraph' &&
-                nextNode.type === 'paragraph'
-              ) {
-                normalizedNodes.push({ type: 'html', value: '<br />' })
-              }
-            }
-
-            if (normalizedNodes.every(isPhrasingContent)) {
-              return normalizedNodes
-            }
-
-            cell.data = {
-              ...cell.data,
-              invalidChildren: normalizedNodes,
-            }
-
-            return normalizedNodes.filter(isPhrasingContent)
-          },
-        )
+        return this.transformTableCell(block)
       }
       case BlockType.VIEW: {
         return null
@@ -1289,21 +1397,23 @@ class Transformer {
     }
   }
 
-  transform<T extends Blocks>(block: T): TransformResult<Mutate<T>> {
-    const node = this._transform(block) as Mutate<T>
+  private reset(): void {
+    this.parent = null
+    this.tableWithParents = []
+    this.mentionUsers = []
+    this.sequences = []
+  }
 
-    const result: TransformResult<Mutate<T>> = {
-      root: node,
+  transform(block: PageBlock): TransformResult {
+    const root = this.transformRoot(block)
+
+    const result: TransformResult = {
+      root,
       tableWithParents: this.tableWithParents,
       mentionUsers: this.mentionUsers,
     }
 
-    this.parent = null
-
-    this.tableWithParents = []
-    this.mentionUsers = []
-
-    this.sequences = []
+    this.reset()
 
     return result
   }
@@ -1420,7 +1530,7 @@ export class Docx {
 
   intoMarkdownAST(
     transformerOptions: TransformerOptions = {},
-  ): TransformResult<mdast.Root> {
+  ): TransformResult {
     if (!this.rootBlock) {
       return {
         root: { type: 'root', children: [] },

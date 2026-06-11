@@ -41,6 +41,7 @@ export const isPhrasingContent = (
   node.type === 'image' ||
   node.type === 'imageReference' ||
   node.type === 'inlineCode' ||
+  node.type === 'inlineMath' ||
   node.type === 'link' ||
   node.type === 'linkReference' ||
   node.type === 'strong' ||
