@@ -1,5 +1,4 @@
 import type * as mdast from 'mdast'
-import type { MarkdownStringifyOptions } from './markdown'
 import { stringifyMarkdown } from './markdown'
 import { PageMain, isDoc, isDocx } from './runtime'
 import { BlockType, type Blocks, type PageBlock } from './lark'
@@ -33,11 +32,8 @@ const isBlockReady = (block: Blocks): boolean => {
 }
 
 export class Docx {
-  static stringify(
-    root: mdast.Root,
-    options?: MarkdownStringifyOptions,
-  ): string {
-    return stringifyMarkdown(root, options)
+  static stringify(root: mdast.Root): string {
+    return stringifyMarkdown(root)
   }
 
   static async locateBlockWithRecordId(recordId: string): Promise<boolean> {

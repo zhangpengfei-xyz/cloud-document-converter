@@ -24,11 +24,15 @@
     "es-toolkit": "catalog:prod",
     "hast-util-to-html": "catalog:prod",
     "lucide-vue-next": "catalog:prod",
+    "mdast-util-from-markdown": "catalog:markdown",
     "mdast-util-gfm-strikethrough": "catalog:prod",
     "mdast-util-gfm-task-list-item": "catalog:prod",
     "mdast-util-math": "catalog:prod",
     "mdast-util-to-hast": "catalog:prod",
     "mdast-util-to-markdown": "catalog:markdown",
+    "micromark-extension-gfm-strikethrough": "catalog:markdown",
+    "micromark-extension-gfm-task-list-item": "catalog:markdown",
+    "micromark-extension-math": "catalog:markdown",
     "vue": "catalog:prod"
   },
   "browserslist": [

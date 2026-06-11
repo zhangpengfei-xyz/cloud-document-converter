@@ -213,7 +213,7 @@ sequenceDiagram
 - `rootBlock`：读取 `PageMain` 中的 root block。
 - `isReady()`：递归检查 block 是否仍为 `pending`，以及 synced reference 是否加载完成。
 - `intoMarkdownAST()`：创建 `Transformer`，把 root block 转为 mdast。
-- `Docx.stringify(root, options)`：通过 `markdown.ts` 序列化 Markdown。
+- `Docx.stringify(root)`：通过 `markdown.ts` 标准化并序列化 Markdown。
 - `Docx.locateBlockWithRecordId(recordId)`：委托页面 block locator，并保护异常。
 
 当 root block 不存在时，转换会返回空 mdast root。
@@ -362,17 +362,26 @@ Transformer 初始输出 list item，`mergeListItems()` 再把相邻且兼容的
 6. 使用 `hast-util-to-html` 序列化。
 7. 用 raw HTML node 替换父节点中的原始 mdast table。
 
-### 7.10 Markdown 序列化
+### 7.10 Markdown 标准化与序列化
 
 源码：`apps/chrome-extension/src/core/markdown.ts`
 
-Markdown 序列化使用 `mdast-util-to-markdown`，并启用：
+Markdown 标准化与序列化使用：
+
+- `mdast-util-to-markdown`：把 mdast 转为 Markdown 字符串。
+- `mdast-util-from-markdown`：把 Markdown 字符串重新解析为 mdast。
+
+`normalizeMarkdown(root: mdast.Root)` 会先使用默认 Markdown 序列化配置执行一次 `toMarkdown()`，再对得到的 Markdown 字符串执行 `fromMarkdown()`，生成标准化后的 mdast root。
+
+默认启用的 Markdown 方言能力包括：
 
 - GFM strikethrough。
 - GFM task list item。
 - math 序列化，`singleDollarTextMath: false`。
 
-额外序列化选项可以通过 `Docx.stringify()` 透传。
+`fromMarkdown()` 配置了对应的 micromark 和 mdast 扩展，避免标准化过程丢失删除线、任务列表和数学公式结构。
+
+`Docx.stringify()` 会在最终输出 Markdown 前调用 `normalizeMarkdown()`，并通过 `console.log` 分别记录原始 mdast root 字符串和标准化后的 mdast root 字符串，方便后续比较结构差异。当前项目没有动态序列化选项，`toMarkdown()` 使用固定配置常量。
 
 ## 8. 预览流程
 
@@ -389,7 +398,7 @@ flowchart TD
   Ready -->|是| Transform["Transformer 生成 mdast"]
   Transform --> Mentions["从页面 DOM 解析 mention 用户"]
   Mentions --> Tables["表格替换为 HTML"]
-  Tables --> Stringify["序列化 Markdown"]
+  Tables --> Stringify["标准化并序列化 Markdown"]
   Stringify --> Open["window.open 预览窗口"]
   Open --> Render["写入样式、标题和 pre.textContent"]
 ```
@@ -509,7 +518,7 @@ Vite/Rolldown 配置：
 - `build`：`rolldown-vite`、`tsdown`。
 - `dev`：Vue/Vite/Tailwind/TypeScript 辅助包。
 - `lint`：ESLint、Prettier、Husky、lint-staged、typescript-eslint。
-- `markdown`：`mdast-util-to-markdown`。
+- `markdown`：`mdast-util-from-markdown`、`mdast-util-to-markdown`、Markdown 解析扩展。
 - `monorepo`：Turborepo。
 - `node`：构建期 Node 工具，例如 `execa`、`glob`。
 - `prod`：运行时转换和 UI 依赖。
@@ -524,6 +533,7 @@ Vite/Rolldown 配置：
 - 项目不定义自有后端。
 - core 从 `window.PageMain` 读取文档结构。
 - mention 展示名在定位到所属 block 后从页面 DOM 读取。
+- Markdown 转换阶段会在当前页面 console 输出原始和标准化后的 mdast root 字符串，调试日志可能包含文档文本。
 - 图片 URL 使用飞书/Lark image token 输出，项目自身不抓取也不上传图片。
 - 扩展不申请持久站点权限；只有用户点击扩展 Popup 后，`activeTab` 才授予当前活动标签页的临时脚本注入权限。
 - 错误日志应避免加入私有文档内容，当前实现只输出通用错误信息。

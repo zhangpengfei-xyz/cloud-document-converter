@@ -1,5 +1,6 @@
 export * from './runtime'
 export * from './docx'
+export * from './markdown'
 export * from './mentions'
 export * from './table-html'
 

@@ -27,7 +27,11 @@ catalogs:
     prettier: ^3.3.3
     typescript-eslint: ^8.32.1
   markdown:
+    mdast-util-from-markdown: ^2.0.2
     mdast-util-to-markdown: ^2.1.2
+    micromark-extension-gfm-strikethrough: ^2.0.0
+    micromark-extension-gfm-task-list-item: ^2.0.0
+    micromark-extension-math: ^3.0.0
   monorepo:
     turbo: 2.5.8
   node:
