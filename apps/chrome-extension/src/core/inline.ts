@@ -33,19 +33,6 @@ const markAttributeNames = [
 type MarkAttributeName = (typeof markAttributeNames)[number]
 type MarkNodeType = 'emphasis' | 'strong' | 'delete' | 'link'
 
-const literalAttributeNames = [
-  'inlineCode',
-  'equation',
-  'mentionUserId',
-  'underline',
-  'inline-component',
-] as const satisfies readonly (keyof Attributes)[]
-
-const renderableAttributeNames = [
-  ...markAttributeNames,
-  ...literalAttributeNames,
-] as const satisfies readonly (keyof Attributes)[]
-
 const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
   italic: 'emphasis',
   bold: 'strong',
@@ -58,17 +45,14 @@ const hasAttribute = (
   name: keyof Attributes,
 ): boolean => attributes !== undefined && Object.hasOwn(attributes, name)
 
-const hasRenderableAttributes = (operation: Operation): boolean =>
-  renderableAttributeNames.some(attr =>
-    hasAttribute(operation.attributes, attr),
-  )
-
 const isRenderableOperation = (operation: Operation): boolean => {
+  // Feishu stores the block-ending newline as fixEnter, but in-paragraph line
+  // breaks can be standalone "\n" operations that should remain in Markdown.
   if (isNotNil(operation.attributes?.fixEnter)) {
     return false
   }
 
-  return hasRenderableAttributes(operation) || operation.insert !== '\n'
+  return true
 }
 
 const parseInlineComponent = (value?: string): InlineComponent | null => {
@@ -159,6 +143,18 @@ const sortOperationMarks = (
         markSpanLength(b, index, marksByIndex, operations),
     )
 
+const splitTextLineBreaks = (value: string): mdast.PhrasingContent[] =>
+  value
+    .split('\n')
+    .flatMap((part, index, parts) => [
+      ...(part.length > 0
+        ? [{ type: 'text', value: part } satisfies mdast.Text]
+        : []),
+      ...(index < parts.length - 1
+        ? [{ type: 'break' } satisfies mdast.Break]
+        : []),
+    ])
+
 const createLiteralNodes = (op: Operation): mdast.PhrasingContent[] => {
   const { attributes, insert } = op
   const { inlineCode, equation, mentionUserId, underline } = attributes ?? {}
@@ -196,12 +192,12 @@ const createLiteralNodes = (op: Operation): mdast.PhrasingContent[] => {
   if (underline) {
     return [
       { type: 'html', value: '<u>' },
-      { type: 'text', value: insert },
+      ...splitTextLineBreaks(insert),
       { type: 'html', value: '</u>' },
     ]
   }
 
-  return [{ type: 'text', value: insert }]
+  return splitTextLineBreaks(insert)
 }
 
 const wrapWithMark = (
