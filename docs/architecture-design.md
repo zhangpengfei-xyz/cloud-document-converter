@@ -294,6 +294,7 @@ root、blockquote、list item 的 children 会过滤成 mdast 允许的内容。
 - `bold` -> `strong`。
 - `strikethrough` -> `delete`。
 - `link` -> 解码 URL 后生成 `link`。
+- `link-id` 标记的裸链接文本 -> 生成 `link`。
 - `inlineCode` -> `inlineCode`。
 - `equation` -> `inlineMath`。
 - `underline` -> raw HTML `<u>`。

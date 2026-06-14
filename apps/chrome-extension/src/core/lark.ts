@@ -57,6 +57,7 @@ export interface Attributes {
   'inline-component'?: string
 
   link?: string
+  'link-id'?: string
 }
 
 export interface Operation {

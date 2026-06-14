@@ -27,16 +27,17 @@ const markAttributeNames = [
   'italic',
   'bold',
   'strikethrough',
-  'link',
 ] as const satisfies readonly (keyof Attributes)[]
 type MarkAttributeName = (typeof markAttributeNames)[number]
 type MarkNodeType = 'emphasis' | 'strong' | 'delete' | 'link'
 
-const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
+const markAttributeToNodeType: Record<
+  MarkAttributeName,
+  Exclude<MarkNodeType, 'link'>
+> = {
   italic: 'emphasis',
   bold: 'strong',
   strikethrough: 'delete',
-  link: 'link',
 }
 
 const hasAttribute = (
@@ -58,6 +59,26 @@ const parseInlineComponent = (value?: string): InlineComponent | null => {
   } catch {
     return null
   }
+}
+
+const decodeUrl = (url: string): string => {
+  try {
+    return decodeURIComponent(url)
+  } catch {
+    return url
+  }
+}
+
+const resolveOperationLink = (op: Operation): string | null => {
+  if (hasAttribute(op.attributes, 'link')) {
+    return decodeUrl(op.attributes.link ?? '')
+  }
+
+  if (hasAttribute(op.attributes, 'link-id')) {
+    return decodeUrl(op.insert.trim())
+  }
+
+  return null
 }
 
 const normalizeInlineComponentOperation = (op: Operation): Operation => {
@@ -92,10 +113,12 @@ const normalizeInlineComponentOperation = (op: Operation): Operation => {
   return op
 }
 
-const getOperationMarks = (op: Operation): MarkNodeType[] =>
-  markAttributeNames
+const getOperationMarks = (op: Operation): MarkNodeType[] => [
+  ...markAttributeNames
     .filter(attr => hasAttribute(op.attributes, attr))
-    .map(attr => markAttributeToNodeType[attr])
+    .map(attr => markAttributeToNodeType[attr]),
+  ...(resolveOperationLink(op) === null ? [] : ['link' as const]),
+]
 
 const markSpanLength = (
   mark: MarkNodeType,
@@ -194,7 +217,7 @@ const wrapWithMark = (
         {
           type: 'link',
           title: null,
-          url: decodeURIComponent(op.attributes.link ?? ''),
+          url: resolveOperationLink(op) ?? '',
           children,
         },
       ]
