@@ -1,7 +1,6 @@
 export * from './lark'
 export * from './docx'
 export * from './markdown'
-export * from './mentions'
 export * from './table-html'
 
 export type * as mdast from 'mdast'

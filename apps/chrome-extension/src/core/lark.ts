@@ -1,4 +1,7 @@
 /**
+ * Keep known unsupported values here too. Transformer handles them explicitly
+ * as unsupported block types instead of collapsing them into unknown strings.
+ *
  * @see https://open.feishu.cn/document/client-docs/docs-add-on/06-data-structure/BlockType
  */
 export enum BlockType {
@@ -54,11 +57,10 @@ export interface Attributes {
   'inline-component'?: string
 
   link?: string
-  mentionUserId?: string
 }
 
 export interface Operation {
-  attributes?: Attributes
+  attributes: Attributes
   insert: string
 }
 
@@ -74,15 +76,33 @@ export interface BlockSnapshot {
 }
 
 export interface Block<T extends Blocks = Blocks> {
-  id?: string
+  /**
+   * Not consumed by the current transformer, but this is the stable link back
+   * to the page block maps. The primary window.DATA map can be partial; the
+   * fallback maps in window.docxClientvarFetchManager._clientvarMap may contain
+   * records that are missing there. For persisted records, the matching entry
+   * data is structurally equivalent to this snapshot, though it is not always
+   * the same object reference:
+   * block.snapshot ~= getClientVarsDataSources()
+   *   .find(data => data.block_map[block.recordId])
+   *   ?.block_map[block.recordId]?.data
+   *
+   * Keep this member in the model so future cleanups do not erase that
+   * important runtime relationship.
+   */
+  recordId: string
   type: BlockType
   zoneState?: BlockZoneState
-  record?: { id: string }
   snapshot: BlockSnapshot
   children: T[]
 }
 
-export interface PageBlock extends Block {
+export interface BlockWithZoneState<T extends Blocks = Blocks>
+  extends Block<T> {
+  zoneState: BlockZoneState
+}
+
+export interface PageBlock extends BlockWithZoneState {
   type: BlockType.PAGE
 }
 
@@ -90,15 +110,25 @@ export interface PageMain {
   blockManager: {
     rootBlockModel: PageBlock
   }
+}
 
-  locateBlockWithRecordIdImpl(
-    recordId: string,
-    options?: Record<string, unknown>,
-  ): Promise<boolean>
+export interface ClientVarsData {
+  block_map: Record<string, { data: BlockSnapshot } | undefined>
+  user_map: Record<string, { name: string } | undefined>
+}
+
+export interface DocxClientvarFetchManager {
+  _clientvarMap?: Map<unknown, { data: ClientVarsData }>
 }
 
 declare global {
   interface Window {
+    DATA?: {
+      clientVars: {
+        data: ClientVarsData
+      }
+    }
+    docxClientvarFetchManager?: DocxClientvarFetchManager
     editor?: object
     PageMain?: PageMain
   }
@@ -113,23 +143,28 @@ export const isDocx = (): boolean => getPageMain() !== undefined
 export const getRootBlock = (): PageBlock | null =>
   getPageMain()?.blockManager.rootBlockModel ?? null
 
-export const locateBlockWithRecordId = async (
-  recordId: string,
-): Promise<boolean> => {
-  try {
-    return (await getPageMain()?.locateBlockWithRecordIdImpl(recordId)) ?? false
-  } catch (error) {
-    console.error(error)
-  }
+export const getClientVarsDataSources = (): ClientVarsData[] => {
+  if (typeof window === 'undefined') return []
 
-  return false
+  return [
+    window.DATA?.clientVars.data,
+    ...Array.from(
+      window.docxClientvarFetchManager?._clientvarMap?.values() ?? [],
+      value => value.data,
+    ),
+  ].filter((data): data is ClientVarsData => data !== undefined)
 }
+
+export const getMentionUserName = (uid: string): string | undefined =>
+  getClientVarsDataSources()
+    .map(data => data.user_map[uid]?.name)
+    .find((name): name is string => typeof name === 'string' && name.length > 0)
 
 export interface DividerBlock extends Block {
   type: BlockType.DIVIDER
 }
 
-export interface HeadingBlock extends Block<TextBlock> {
+export interface HeadingBlock extends BlockWithZoneState<TextBlock> {
   type:
     | BlockType.HEADING1
     | BlockType.HEADING2
@@ -159,16 +194,16 @@ export interface HeadingBlock extends Block<TextBlock> {
   }
 }
 
-export interface CodeBlock extends Block<TextBlock> {
+export interface CodeBlock extends BlockWithZoneState<TextBlock> {
   type: BlockType.CODE
   language: string
 }
 
-export interface BulletBlock extends Block {
+export interface BulletBlock extends BlockWithZoneState {
   type: BlockType.BULLET
 }
 
-export interface OrderedBlock extends Block<TextBlock> {
+export interface OrderedBlock extends BlockWithZoneState<TextBlock> {
   type: BlockType.ORDERED
   snapshot: {
     type: BlockType.ORDERED
@@ -176,15 +211,15 @@ export interface OrderedBlock extends Block<TextBlock> {
   }
 }
 
-export interface TodoBlock extends Block {
+export interface TodoBlock extends BlockWithZoneState {
   type: BlockType.TODO
   snapshot: {
     type: BlockType.TODO
-    done?: boolean
+    done: boolean
   }
 }
 
-export interface TextBlock extends Block {
+export interface TextBlock extends BlockWithZoneState {
   type: BlockType.TEXT
 }
 
@@ -198,7 +233,7 @@ export interface Caption {
 
 export interface ImageBlockData {
   token: string
-  caption?: Caption
+  caption: Caption
 }
 
 export interface ImageBlock extends Block {
@@ -245,7 +280,7 @@ export interface GridColumn extends Block {
   type: BlockType.GRID_COLUMN
   snapshot: {
     type: BlockType.GRID_COLUMN
-    width_ratio?: number
+    width_ratio: number
   }
 }
 
@@ -265,18 +300,25 @@ export interface SyncedReference extends Block {
   }
 }
 
+/**
+ * These known block types are intentionally unsupported today. Keep the
+ * explicit type and UnsupportedBlock model so future cleanups do not delete the
+ * support boundary by accident.
+ */
+export type UnsupportedBlockType =
+  | BlockType.BITABLE
+  | BlockType.CHAT_CARD
+  | BlockType.DIAGRAM
+  | BlockType.FALLBACK
+  | BlockType.FILE
+  | BlockType.MINDNOTE
+  | BlockType.QUOTE
+  | BlockType.SHEET
+  | BlockType.VIEW
+  | BlockType.WHITEBOARD
+
 export interface UnsupportedBlock extends Block {
-  type:
-    | BlockType.BITABLE
-    | BlockType.CHAT_CARD
-    | BlockType.DIAGRAM
-    | BlockType.FALLBACK
-    | BlockType.FILE
-    | BlockType.MINDNOTE
-    | BlockType.QUOTE
-    | BlockType.SHEET
-    | BlockType.VIEW
-    | BlockType.WHITEBOARD
+  type: UnsupportedBlockType
 }
 
 export interface IframeBlock extends Block {

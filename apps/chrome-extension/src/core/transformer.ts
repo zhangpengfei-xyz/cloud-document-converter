@@ -13,6 +13,7 @@ import {
   BlockType,
   ISVBlockTypeId,
   type Block,
+  type BlockWithZoneState,
   type Blocks,
   type BulletBlock,
   type Grid,
@@ -43,7 +44,6 @@ export interface TableWithParent {
 export interface TransformResult {
   root: mdast.Root
   tableWithParents: TableWithParent[]
-  mentionUsers: mdast.InlineCode[]
 }
 
 const isTextContainerBlock = (
@@ -117,7 +117,7 @@ const createListItem = (
   }
 
   if (block.type === BlockType.TODO) {
-    listItem.checked = Boolean(block.snapshot.done)
+    listItem.checked = block.snapshot.done
   }
 
   if (block.type === BlockType.ORDERED) {
@@ -251,25 +251,14 @@ const normalizeTableCellChildren = (
 
 export class Transformer {
   private parent: mdast.Parent | null = null
-  private mentionUsers: mdast.InlineCode[] = []
   private tableWithParents: TableWithParent[] = []
   private sequences: (string | undefined)[] = []
   private orderedListSequences = new WeakMap<mdast.Parent, number>()
 
-  private transformInlineContents(block: Block): mdast.PhrasingContent[] {
-    const { contents, mentionUsers } = transformOperationsToPhrasingContents(
-      block.zoneState?.content.ops ?? [],
-    )
-
-    mentionUsers.forEach(user => {
-      if (user.data) {
-        user.data.parentBlockRecordId = block.record?.id
-      }
-    })
-
-    this.mentionUsers = this.mentionUsers.concat(mentionUsers)
-
-    return contents
+  private transformInlineContents(
+    block: BlockWithZoneState,
+  ): mdast.PhrasingContent[] {
+    return transformOperationsToPhrasingContents(block.zoneState.content.ops)
   }
 
   private resolveOrderedListSequence(block: OrderedBlock): number | 'auto' {
@@ -427,7 +416,7 @@ export class Transformer {
           type: 'code',
           lang: block.language ? block.language.toLocaleLowerCase() : null,
           meta: null,
-          value: trimTrailingLineBreak(block.zoneState?.allText ?? ''),
+          value: trimTrailingLineBreak(block.zoneState.allText),
         }
       }
       case BlockType.QUOTE_CONTAINER:
@@ -517,7 +506,6 @@ export class Transformer {
   private reset(): void {
     this.parent = null
     this.tableWithParents = []
-    this.mentionUsers = []
     this.sequences = []
     this.orderedListSequences = new WeakMap()
   }
@@ -528,7 +516,6 @@ export class Transformer {
     const result: TransformResult = {
       root,
       tableWithParents: this.tableWithParents,
-      mentionUsers: this.mentionUsers,
     }
 
     this.reset()

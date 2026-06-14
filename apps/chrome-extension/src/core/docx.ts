@@ -15,7 +15,6 @@ export type { TableWithParent, TransformResult } from './transformer'
 const emptyTransformResult = (): TransformResult => ({
   root: { type: 'root', children: [] },
   tableWithParents: [],
-  mentionUsers: [],
 })
 
 const isBlockReady = (block: Blocks): boolean => {

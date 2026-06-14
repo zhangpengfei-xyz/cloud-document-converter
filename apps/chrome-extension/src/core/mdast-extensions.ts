@@ -19,11 +19,6 @@ declare module 'mdast' {
     rowSpan?: number
     colSpan?: number
   }
-
-  interface InlineCodeData {
-    mentionUserId?: string
-    parentBlockRecordId?: string
-  }
 }
 
 export {}

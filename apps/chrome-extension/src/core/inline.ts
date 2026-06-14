@@ -1,5 +1,6 @@
 import type * as mdast from 'mdast'
 import { isNotNil } from 'es-toolkit/predicate'
+import { getMentionUserName } from './lark'
 import type { Attributes, Operation } from './lark'
 import { trimTrailingLineBreak } from './utils'
 
@@ -39,14 +40,14 @@ const markAttributeToNodeType: Record<MarkAttributeName, MarkNodeType> = {
 }
 
 const hasAttribute = (
-  attributes: Attributes | undefined,
+  attributes: Attributes,
   name: keyof Attributes,
-): boolean => attributes !== undefined && Object.hasOwn(attributes, name)
+): boolean => Object.hasOwn(attributes, name)
 
 const isRenderableOperation = (operation: Operation): boolean => {
   // Feishu stores the block-ending newline as fixEnter, but in-paragraph line
   // breaks can be standalone "\n" operations that should remain in Markdown.
-  return !isNotNil(operation.attributes?.fixEnter)
+  return !isNotNil(operation.attributes.fixEnter)
 }
 
 const parseInlineComponent = (value?: string): InlineComponent | null => {
@@ -61,7 +62,7 @@ const parseInlineComponent = (value?: string): InlineComponent | null => {
 
 const normalizeInlineComponentOperation = (op: Operation): Operation => {
   const inlineComponent = parseInlineComponent(
-    op.attributes?.['inline-component'],
+    op.attributes['inline-component'],
   )
 
   if (!inlineComponent) {
@@ -79,12 +80,12 @@ const normalizeInlineComponentOperation = (op: Operation): Operation => {
   }
 
   if (inlineComponent.type === 'user') {
+    const { uid } = inlineComponent.data
+    const name = getMentionUserName(uid)
+
     return {
-      attributes: {
-        ...op.attributes,
-        mentionUserId: inlineComponent.data.uid,
-      },
-      insert: '',
+      attributes: op.attributes,
+      insert: `@${name ?? uid}`,
     }
   }
 
@@ -151,19 +152,7 @@ const splitTextLineBreaks = (value: string): mdast.PhrasingContent[] =>
 
 const createLiteralNodes = (op: Operation): mdast.PhrasingContent[] => {
   const { attributes, insert } = op
-  const { inlineCode, equation, mentionUserId, underline } = attributes ?? {}
-
-  if (mentionUserId) {
-    return [
-      {
-        type: 'inlineCode',
-        value: insert,
-        data: {
-          mentionUserId,
-        },
-      },
-    ]
-  }
+  const { inlineCode, equation, underline } = attributes
 
   if (inlineCode) {
     return [
@@ -205,7 +194,7 @@ const wrapWithMark = (
         {
           type: 'link',
           title: null,
-          url: decodeURIComponent(op.attributes?.link ?? ''),
+          url: decodeURIComponent(op.attributes.link ?? ''),
           children,
         },
       ]
@@ -238,17 +227,8 @@ const wrapWithMark = (
 const transformOperationToPhrasingContents = (
   op: Operation,
   marks: MarkNodeType[],
-  mentionUsers: mdast.InlineCode[],
 ): mdast.PhrasingContent[] => {
   const literal = createLiteralNodes(op)
-  const mentionUser = literal.find(
-    (node): node is mdast.InlineCode =>
-      node.type === 'inlineCode' && Boolean(node.data?.mentionUserId),
-  )
-
-  if (mentionUser) {
-    mentionUsers.push(mentionUser)
-  }
 
   return marks.reduce<mdast.PhrasingContent[]>(
     (node, mark) => wrapWithMark(node, mark, op),
@@ -279,7 +259,7 @@ const canMergePhrasingContent = (
   }
 
   if (current.type === 'inlineCode' && next.type === 'inlineCode') {
-    return !current.data?.mentionUserId
+    return true
   }
 
   return (
@@ -354,9 +334,7 @@ const mergePhrasingContents = (
 
 export const transformOperationsToPhrasingContents = (
   ops: Operation[],
-): { contents: mdast.PhrasingContent[]; mentionUsers: mdast.InlineCode[] } => {
-  const mentionUsers: mdast.InlineCode[] = []
-
+): mdast.PhrasingContent[] => {
   const operations = ops
     .filter(isRenderableOperation)
     .map(normalizeInlineComponentOperation)
@@ -365,14 +343,8 @@ export const transformOperationsToPhrasingContents = (
     transformOperationToPhrasingContents(
       op,
       sortOperationMarks(marksByIndex[index], index, marksByIndex, operations),
-      mentionUsers,
     ),
   )
 
-  const contents = mergePhrasingContents(nodes)
-
-  return {
-    contents,
-    mentionUsers,
-  }
+  return mergePhrasingContents(nodes)
 }

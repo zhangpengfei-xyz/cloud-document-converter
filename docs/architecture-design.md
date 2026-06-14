@@ -24,7 +24,7 @@ Feishu Doc2Md 是一个 Chrome 扩展，用于把飞书/Lark Docx 文档预览�
 
 - 扩展编排逻辑与核心转换逻辑分离。
 - 使用本地维护的 Lark block 类型和 mdast 作为转换中间表示。
-- 运行时适配层保持轻量，只访问 `window.PageMain`、`window.editor` 和页面提供的 block 定位 API。
+- 运行时适配层保持轻量，只访问 `window.PageMain`、`window.editor`、`window.DATA.clientVars.data` 和 `window.docxClientvarFetchManager._clientvarMap`。
 - 在单 package 内同时构建 background、注入脚本和 Vue Popup。
 - 构建时根据 package version 生成最终扩展 manifest。
 
@@ -160,14 +160,14 @@ sequenceDiagram
   participant BG as Background worker
   participant Tab as 当前文档 Tab
   participant Main as MAIN world 脚本
-  participant PM as window.PageMain
+  participant PM as window.PageMain / clientvars
 
   U->>UI: 触发 View as Markdown
   UI->>BG: 发送 flag
   BG->>BG: 校验 flag
   BG->>Tab: chrome.scripting.executeScript
   Tab->>Main: 执行 view-lark-docx-as-markdown.js
-  Main->>PM: 读取 root block / 定位 mention block
+  Main->>PM: 读取 root block / mention user_map sources
   Main->>Main: 转换、后处理、序列化
   Main->>Main: window.open 预览窗口
 ```
@@ -187,7 +187,6 @@ sequenceDiagram
 - Lark block 类型和页面运行时 helpers。
 - `Docx` 门面类和 `docx` 单例。
 - Markdown 标准化与序列化 helpers。
-- mention 后处理。
 - table 转 HTML 后处理。
 - mdast/hast 类型。
 
@@ -195,14 +194,17 @@ sequenceDiagram
 
 源码：`apps/chrome-extension/src/core/lark.ts`
 
-`lark.ts` 维护转换器当前需要的 Feishu/Lark Docx block 子集，并同时暴露页面全局对象的最小 typed view。把这两部分放在同一模块，是因为 `window.PageMain` 暴露的是 Lark 页面内的 root block tree 和 block 定位能力，本质上属于 Lark 页面模型边界。
+`lark.ts` 维护转换器当前需要的 Feishu/Lark Docx block 子集，并同时暴露页面全局对象的最小 typed view。把这两部分放在同一模块，是因为 `window.PageMain` 暴露的是 Lark 页面内的 root block tree，`window.DATA.clientVars.data` 和 `window.docxClientvarFetchManager._clientvarMap` 暴露了 mention 所需的用户映射和 block_map，本质上都属于 Lark 页面模型边界。
 
 - `PageMain`：`window.PageMain` 的类型定义。
 - `getPageMain()`：读取当前页面上的 `window.PageMain`。
 - `isDocx()`：`window.PageMain` 存在时认为是新版 Docx 页面。
 - `isDoc()`：`window.editor` 存在时认为是旧版 Doc 页面。
 - `getRootBlock()`：读取 `PageMain.blockManager.rootBlockModel`。
-- `locateBlockWithRecordId(recordId)`：委托页面提供的 block 定位能力，mention 解析会用到，并保护异常。
+- `getClientVarsDataSources()`：按优先级返回 `window.DATA.clientVars.data`，再返回 `window.docxClientvarFetchManager._clientvarMap` 中每个 value 的 `data`。
+- `getMentionUserName()`：在上述所有 `user_map` 中按顺序查找 mention 用户 uid 对应的 `name`。
+- `user_map`：mention 用户 uid 到用户信息的映射；行内转换阶段读取其中的 `name`，主 `DATA` 映射缺失时使用 fetch manager 中的映射兜底。
+- `block_map`：页面 block 数据映射；`recordId` 是 block 回到 `block_map` 的关联键。主 `DATA` 映射可能只包含部分 record，`window.docxClientvarFetchManager._clientvarMap` 的 value data 里可能包含主映射缺失的 record。存在对应 entry 时，`block.snapshot` 与 `block_map[block.recordId].data` 结构等价，但不总是同一个对象引用。
 
 ### 7.2 Docx 门面
 
@@ -224,9 +226,9 @@ sequenceDiagram
 
 该文件维护转换器当前需要的 Feishu/Lark Docx block 子集：
 
-- 通用 block 字段：`type`、`snapshot`、`zoneState`、`children`、可选 `id` 和 `record`。
+- 通用 block 字段：`type`、`recordId`、`snapshot`、`zoneState`、`children`。
 - 行内文本 operation 和 attributes。
-- 页面运行时对象：`PageMain`、`getPageMain()`、`getRootBlock()`、`locateBlockWithRecordId()`。
+- 页面运行时对象：`PageMain`、`DATA`、`getPageMain()`、`getRootBlock()`。
 - 结构块：page、heading、text、divider、code、quote、callout、list、todo、table、grid。
 - 媒体和嵌入块：image、iframe、ISV、whiteboard、diagram、view、file。
 - 同步块：`SYNCED_SOURCE`、`SYNCED_REFERENCE`。
@@ -238,12 +240,11 @@ sequenceDiagram
 
 源码：`apps/chrome-extension/src/core/transformer.ts`
 
-`Transformer` 把 Docx block tree 转为 mdast，同时收集需要二次处理的信息。
+`Transformer` 把 Docx block tree 转为 mdast，同时收集表格 HTML 后处理所需的信息。
 
 内部状态：
 
 - `parent`：当前 mdast 父节点，用于图片包裹、表格替换等上下文判断。
-- `mentionUsers`：需要在 AST 构建后从 DOM 解析的 mention 占位节点。
 - `tableWithParents`：后续要替换为 HTML 的 table 节点及其父节点。
 - `sequences`：标题自动编号状态。
 
@@ -297,7 +298,7 @@ root、blockquote、list item 的 children 会过滤成 mdast 允许的内容。
 - `equation` -> `inlineMath`。
 - `underline` -> raw HTML `<u>`。
 - `inline-component` mention doc -> 链接到引用文档。
-- `inline-component` user -> 临时 `inlineCode` 占位节点，携带 `mentionUserId`。
+- `inline-component` user -> 从 clientvars data sources 的 `user_map[uid]?.name` 读取展示名，生成 `@name` 文本；找不到名称时生成 `@uid`。
 
 带 `fixEnter` 的 operation 会被忽略。必要时会裁掉尾部换行，并合并相邻兼容的 phrasing 节点，减少 Markdown 噪音。
 
@@ -330,17 +331,17 @@ Transformer 初始输出 list item，`mergeListItems()` 再把相邻且兼容的
 
 ### 7.8 Mention 解析
 
-源码：`apps/chrome-extension/src/core/mentions.ts`
+源码：`apps/chrome-extension/src/core/inline.ts`
 
-用户 mention 在 mdast 构建完成后解析，因为展示名称需要从当前页面 DOM 中读取：
+用户 mention 在行内转换时直接解析，展示名称来自当前页面运行时的 clientvars data sources：
 
-1. 行内转换生成带 `mentionUserId` 的 `inlineCode` 占位节点。
-2. Transformer 记录该 mention 所属的 parent block record ID。
-3. `transformMentionUsers()` 调用 `locateBlockWithRecordId()` 让页面定位到对应 block。
-4. 在页面中查找 token 匹配的 `a[data-token]` 元素。
-5. 找到后把占位节点值改为 `@${innerText}`。
+1. 行内转换解析 `inline-component`。
+2. 当组件类型为 `user` 时读取组件里的 `uid`。
+3. 先查 `window.DATA.clientVars.data.user_map[uid]?.name`。
+4. 如果主映射没有命中，再按顺序查 `window.docxClientvarFetchManager._clientvarMap` 中每个 value 的 `data.user_map[uid]?.name`。
+5. 找到名称后生成 `@${name}` 文本，找不到名称时生成 `@${uid}`。
 
-如果 block 无法定位或 DOM 元素不存在，占位节点会保持原状。
+如果所有 `user_map` 都没有对应用户名称，该 mention 会保留 uid，避免内容静默丢失。
 
 ### 7.9 表格 HTML 后处理
 
@@ -408,8 +409,7 @@ flowchart TD
   DocxPage -->|是| Ready{"所有 block 已就绪?"}
   Ready -->|否| Loading["记录内容仍在加载"]
   Ready -->|是| Transform["Transformer 生成 mdast"]
-  Transform --> Mentions["从页面 DOM 解析 mention 用户"]
-  Mentions --> Tables["表格替换为 HTML"]
+  Transform --> Tables["表格替换为 HTML"]
   Tables --> Stringify["标准化并序列化 Markdown"]
   Stringify --> Open["window.open 预览窗口"]
   Open --> Render["写入样式、标题和 pre.textContent"]
@@ -543,8 +543,7 @@ Vite/Rolldown 配置：
 
 - 转换在用户浏览器当前文档页面内执行。
 - 项目不定义自有后端。
-- core 从 `window.PageMain` 读取文档结构。
-- mention 展示名在定位到所属 block 后从页面 DOM 读取。
+- core 从 `window.PageMain` 读取文档结构，从 `window.DATA.clientVars.data.user_map` 和 `window.docxClientvarFetchManager._clientvarMap` 读取 mention 用户展示名。
 - Markdown 转换阶段会在当前页面 console 输出原始和标准化后的 mdast root 字符串，调试日志可能包含文档文本。
 - 图片 URL 使用飞书/Lark image token 输出，项目自身不抓取也不上传图片。
 - 扩展不申请持久站点权限；只有用户点击扩展 Popup 后，`activeTab` 才授予当前活动标签页的临时脚本注入权限。
@@ -552,10 +551,10 @@ Vite/Rolldown 配置：
 
 ## 12. 当前限制
 
-- 转换器依赖 `window.PageMain`、block snapshot、DOM selector 等页面私有实现。
+- 转换器依赖 `window.PageMain`、clientvars data sources、block snapshot 等页面私有实现。
 - 不支持或不稳定的 block 类型会被跳过，而不是输出占位内容。
 - 表格统一转 raw HTML，比 GFM table 更保真，但在禁用 HTML 的 Markdown 渲染器中可移植性较弱。
-- mention 解析依赖 block 定位和可见 DOM anchor；如果 DOM 数据缺失，占位值会保持原样。
+- mention 解析优先依赖 clientvars data sources 中的 `user_map`；如果所有运行时用户映射都缺失，该 mention 会 fallback 为 uid。
 - 预览窗口展示的是 Markdown 纯文本，不是渲染后的 Markdown 页面。
 - Firefox 支持通过构建阶段适配，但源码 manifest 仍以 Chromium MV3 形态为主。
 
@@ -563,7 +562,7 @@ Vite/Rolldown 配置：
 
 后续可以考虑：
 
-1. 把页面 DOM selector 和运行时兼容检查进一步集中，降低飞书/Lark 页面改版影响。
+1. 把页面运行时兼容检查进一步集中，降低飞书/Lark 页面改版影响。
 2. 为 `Transformer`、行内转换、列表合并、表格 HTML 替换和 mention fallback 增加 focused fixtures。
 3. 为不支持页面和内容未加载完成的情况增加用户可见反馈。
 4. 增加可选的渲染态 Markdown 预览，同时保留当前安全的纯文本预览。

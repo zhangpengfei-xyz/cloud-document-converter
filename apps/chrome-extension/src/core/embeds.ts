@@ -9,7 +9,7 @@ export const imageToMarkdownImage = (block: ImageBlock): mdast.Image => {
   const { caption, token } = block.snapshot.image
   const alt =
     trimTrailingLineBreak(
-      caption?.text.initialAttributedTexts.text?.[0] ?? '',
+      caption.text.initialAttributedTexts.text?.[0] ?? '',
     ) || token
 
   return {

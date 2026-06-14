@@ -1,9 +1,4 @@
-import {
-  docx,
-  stringifyMarkdown,
-  transformMentionUsers,
-  transformTablesToHtml,
-} from '../core'
+import { docx, stringifyMarkdown, transformTablesToHtml } from '../core'
 
 const message = {
   unknownError: 'Unknown error while opening preview',
@@ -24,7 +19,7 @@ const logError = (content: string, error?: unknown): void => {
   }
 }
 
-const main = async () => {
+const main = () => {
   if (docx.isDoc) {
     logError(message.notSupportDoc1)
 
@@ -43,9 +38,8 @@ const main = async () => {
     return
   }
 
-  const { root, tableWithParents, mentionUsers } = docx.intoMarkdownAST()
+  const { root, tableWithParents } = docx.intoMarkdownAST()
 
-  await transformMentionUsers(mentionUsers)
   transformTablesToHtml(tableWithParents)
 
   const markdown = stringifyMarkdown(root)
@@ -90,6 +84,8 @@ const main = async () => {
   previewDocument.body.appendChild(pre)
 }
 
-main().catch((error: unknown) => {
+try {
+  main()
+} catch (error: unknown) {
   logError(message.unknownError, error)
-})
+}
