@@ -5,6 +5,7 @@
   "scripts": {
     "type-check": "vue-tsc -b",
     "build": "node --experimental-strip-types ./scripts/cli.ts build",
+    "cdp:find": "node --experimental-strip-types ./scripts/cdp-find.ts",
     "dev:pages": "vite"
   },
   "devDependencies": {
